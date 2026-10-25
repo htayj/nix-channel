@@ -16,6 +16,8 @@
       # Channel-maintained definitions, built against the consumer's package set.
       localPackages = pkgs: {
         apout = pkgs.callPackage ./pkgs/apout { };
+        cadr-fonts-latin = pkgs.callPackage ./pkgs/cadr-fonts { group = "latin"; };
+        cadr-fonts-symbols = pkgs.callPackage ./pkgs/cadr-fonts { group = "symbols"; };
         genera-fonts-latin = pkgs.callPackage ./pkgs/genera-fonts { group = "latin"; };
         genera-fonts-symbols = pkgs.callPackage ./pkgs/genera-fonts { group = "symbols"; };
         ks10-udis = pkgs.callPackage ./pkgs/ks10-udis { };
@@ -40,8 +42,8 @@
             overlays = [ self.overlays.default ];
           };
         in {
-          inherit (self.packages.${system}) apout autolith genera-fonts-latin genera-fonts-symbols
-            ks10-udis tapeutils vt05;
+          inherit (self.packages.${system}) apout autolith cadr-fonts-latin cadr-fonts-symbols
+            genera-fonts-latin genera-fonts-symbols ks10-udis tapeutils vt05;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
