@@ -1,0 +1,44 @@
+{
+  description = "Taylor's package channel";
+
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  # Keep Autolith's independent pin: SBCL and its Lisp package set must match.
+  inputs.autolith.url = "github:htayj/autolith";
+
+  outputs = { self, nixpkgs, autolith, ... }:
+    let
+      # Start with the platform validated by this channel.
+      systems = [ "x86_64-linux" ];
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+      packageSet = system: {
+        autolith = autolith.packages.${system}.default;
+      };
+    in {
+      packages = forAllSystems (system: packageSet system // {
+        gitleaks = nixpkgs.legacyPackages.${system}.gitleaks;
+      });
+
+      # Re-export upstream derivations rather than rebuilding against a
+      # potentially incompatible consumer package set.
+      overlays.default = final: _prev: packageSet final.stdenv.hostPlatform.system;
+
+      checks = forAllSystems (system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ self.overlays.default ];
+          };
+        in {
+          inherit (self.packages.${system}) autolith;
+          overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
+            pkgs.runCommand "channel-overlay-check" {} "touch $out";
+          secrets = pkgs.runCommand "channel-secret-scan" {
+            nativeBuildInputs = [ pkgs.gitleaks ];
+          } ''
+            gitleaks dir --redact --no-banner --ignore-gitleaks-allow \
+              --config ${./.gitleaks.toml} ${./.}
+            touch $out
+          '';
+        });
+    };
+}

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+existing=$(git -C "$repo" config --get core.hooksPath || true)
+if [[ -n "$existing" && "$existing" != .githooks ]]; then
+  printf 'Refusing to replace existing hooksPath: %s\n' "$existing" >&2
+  exit 1
+fi
+scanner_package=$(nix build "path:$repo#gitleaks" --no-link --print-out-paths)
+scanner_link=$(git -C "$repo" rev-parse --path-format=absolute --git-path gitleaks-bin)
+ln -sfn "$scanner_package/bin/gitleaks" "$scanner_link"
+git -C "$repo" config --local core.hooksPath .githooks
+printf 'Enabled staged-secret scanning for %s\n' "$repo"

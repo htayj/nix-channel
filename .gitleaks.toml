@@ -1,0 +1,16 @@
+title = "NixOS and Home Manager secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public agent-signing fingerprint, not an API credential"
+regexTarget = "secret"
+regexes = ['''^D0BEDCD5B63A4040FBC5BC00A6398F53FCEC1C10$''']
+
+# Fail on private-key headers even if only a fragment has been pasted.
+[[rules]]
+id = "private-key-header"
+description = "Private key material must never enter this repository"
+regex = '''-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----'''
+keywords = ["PRIVATE KEY"]

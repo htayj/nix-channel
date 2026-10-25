@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo=$(git rev-parse --show-toplevel)
+scanner=$(git rev-parse --git-path gitleaks-bin)
+if [[ ! -x "$scanner" ]]; then
+  echo "Secret scanner missing; run scripts/setup-git-hooks before committing." >&2
+  exit 1
+fi
+exec "$scanner" git --pre-commit --staged \
+  --redact --no-banner --ignore-gitleaks-allow --config "$repo/.gitleaks.toml" "$repo"
