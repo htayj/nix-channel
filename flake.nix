@@ -15,6 +15,7 @@
       };
       # Channel-maintained definitions, built against the consumer's package set.
       localPackages = pkgs: {
+        apout = pkgs.callPackage ./pkgs/apout { };
         ks10-udis = pkgs.callPackage ./pkgs/ks10-udis { };
         tapeutils = pkgs.callPackage ./pkgs/tapeutils { };
         vt05 = pkgs.callPackage ./pkgs/vt05 { };
@@ -37,7 +38,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-          inherit (self.packages.${system}) autolith ks10-udis tapeutils vt05;
+          inherit (self.packages.${system}) apout autolith ks10-udis tapeutils vt05;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
