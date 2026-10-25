@@ -16,6 +16,7 @@
       # Channel-maintained definitions, built against the consumer's package set.
       localPackages = pkgs: {
         apout = pkgs.callPackage ./pkgs/apout { };
+        atarist-font = pkgs.callPackage ./pkgs/atarist-font { };
         cadr-fonts-latin = pkgs.callPackage ./pkgs/cadr-fonts { group = "latin"; };
         cadr-fonts-symbols = pkgs.callPackage ./pkgs/cadr-fonts { group = "symbols"; };
         genera-fonts-latin = pkgs.callPackage ./pkgs/genera-fonts { group = "latin"; };
@@ -45,7 +46,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-          inherit (self.packages.${system}) apout autolith cadr-fonts-latin cadr-fonts-symbols
+          inherit (self.packages.${system}) apout atarist-font autolith cadr-fonts-latin cadr-fonts-symbols
             genera-fonts-latin genera-fonts-symbols kbredir ks10-udis pdp10-its-disassembler pycat
             tapeutils vt05;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
