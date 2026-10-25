@@ -7,7 +7,9 @@ if [[ -n "$existing" && "$existing" != .githooks ]]; then
   exit 1
 fi
 scanner_package=$(nix build "path:$repo#gitleaks" --no-link --print-out-paths)
-scanner_link=$(git -C "$repo" rev-parse --path-format=absolute --git-path gitleaks-bin)
-ln -sfn "$scanner_package/bin/gitleaks" "$scanner_link"
+scanner_link="$(git -C "$repo" rev-parse --absolute-git-dir)/gitleaks-bin"
+if [[ ! -L "$scanner_link" || "$(readlink "$scanner_link")" != "$scanner_package/bin/gitleaks" ]]; then
+  ln -sfn "$scanner_package/bin/gitleaks" "$scanner_link"
+fi
 git -C "$repo" config --local core.hooksPath .githooks
 printf 'Enabled staged-secret scanning for %s\n' "$repo"
