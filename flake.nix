@@ -13,14 +13,20 @@
       packageSet = system: {
         autolith = autolith.packages.${system}.default;
       };
+      # Channel-maintained definitions, built against the consumer's package set.
+      localPackages = pkgs: {
+        tapeutils = pkgs.callPackage ./pkgs/tapeutils { };
+      };
     in {
-      packages = forAllSystems (system: packageSet system // {
-        gitleaks = nixpkgs.legacyPackages.${system}.gitleaks;
-      });
+      packages = forAllSystems (system: packageSet system
+        // localPackages nixpkgs.legacyPackages.${system} // {
+          gitleaks = nixpkgs.legacyPackages.${system}.gitleaks;
+        });
 
       # Re-export upstream derivations rather than rebuilding against a
       # potentially incompatible consumer package set.
-      overlays.default = final: _prev: packageSet final.stdenv.hostPlatform.system;
+      overlays.default = final: _prev:
+        packageSet final.stdenv.hostPlatform.system // localPackages final;
 
       checks = forAllSystems (system:
         let
@@ -29,7 +35,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-          inherit (self.packages.${system}) autolith;
+          inherit (self.packages.${system}) autolith tapeutils;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
