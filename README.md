@@ -5,6 +5,18 @@ flake inputs; it does not publish legacy `nix-channel` archives.
 
 Currently validated on `x86_64-linux`.
 
+## Remotes and mirror
+
+- Primary (`origin`): https://forge.nogroup.group/tay/nix-channel (private).
+- GitHub mirror (`github`): https://github.com/htayj/nix-channel (private).
+
+Push to Forgejo with `git push`; `main` tracks `origin/main`. Forgejo mirrors
+on every push, with an eight-hour periodic sync as a fallback. Make changes on
+Forgejo; issues, pull requests, and settings are not mirrored. The mirror uses
+a Forgejo-generated SSH key with write access only to the GitHub repository.
+Credentials remain outside this repository.
+
+
 ## Packages
 
 - `autolith`: upstream Autolith, preserving its own Nixpkgs/SBCL pin.
@@ -19,17 +31,17 @@ nix shell path:/home/taylor/projects/nix-channel#autolith
 
 ## Consume from another flake
 
-Add an input (the local path works before this repository is published):
+Add an input (Git access to the private repository is required):
 
 ```nix
-inputs.taylor-packages.url = "path:/home/taylor/projects/nix-channel";
+inputs.taylor-packages.url = "git+https://forge.nogroup.group/tay/nix-channel.git";
 inputs.taylor-packages.inputs.nixpkgs.follows = "nixpkgs";
 ```
 
 Include `taylor-packages` in your outputs arguments, then use
 `taylor-packages.packages.${system}.autolith` in `home.packages` or
-`environment.systemPackages`. After publishing, replace the URL with the actual
-Git repository URL and update the consumer lock file.
+`environment.systemPackages`. For local development, use
+`path:/home/taylor/projects/nix-channel` instead.
 
 Alternatively, apply `taylor-packages.overlays.default` to your Nixpkgs import
 (or NixOS `nixpkgs.overlays`) and use `pkgs.autolith`. For standalone Home Manager,
