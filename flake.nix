@@ -16,6 +16,7 @@
       # Channel-maintained definitions, built against the consumer's package set.
       localPackages = pkgs: {
         tapeutils = pkgs.callPackage ./pkgs/tapeutils { };
+        vt05 = pkgs.callPackage ./pkgs/vt05 { };
       };
     in {
       packages = forAllSystems (system: packageSet system
@@ -35,7 +36,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-          inherit (self.packages.${system}) autolith tapeutils;
+          inherit (self.packages.${system}) autolith tapeutils vt05;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
