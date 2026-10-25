@@ -21,6 +21,7 @@
         genera-fonts-latin = pkgs.callPackage ./pkgs/genera-fonts { group = "latin"; };
         genera-fonts-symbols = pkgs.callPackage ./pkgs/genera-fonts { group = "symbols"; };
         ks10-udis = pkgs.callPackage ./pkgs/ks10-udis { };
+        pdp10-its-disassembler = pkgs.callPackage ./pkgs/pdp10-its-disassembler { };
         tapeutils = pkgs.callPackage ./pkgs/tapeutils { };
         vt05 = pkgs.callPackage ./pkgs/vt05 { };
       };
@@ -43,7 +44,8 @@
           };
         in {
           inherit (self.packages.${system}) apout autolith cadr-fonts-latin cadr-fonts-symbols
-            genera-fonts-latin genera-fonts-symbols ks10-udis tapeutils vt05;
+            genera-fonts-latin genera-fonts-symbols ks10-udis pdp10-its-disassembler
+            tapeutils vt05;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
