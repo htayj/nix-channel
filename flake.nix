@@ -31,6 +31,7 @@
         pycat = pkgs.callPackage ./pkgs/pycat { };
         tapeutils = pkgs.callPackage ./pkgs/tapeutils { };
         vt05 = pkgs.callPackage ./pkgs/vt05 { };
+        wrogue = pkgs.callPackage ./pkgs/wrogue { };
       };
     in {
       packages = forAllSystems (system: packageSet system
@@ -52,7 +53,7 @@
         in {
           inherit (self.packages.${system}) agduria apout atarist-font autolith cadr-fonts-latin cadr-fonts-symbols
             genera-fonts-latin genera-fonts-symbols itstar kbredir ks10-udis pdp10-its-disassembler pdp11 pdp6 pycat
-            tapeutils vt05;
+            tapeutils vt05 wrogue;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
