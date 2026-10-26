@@ -94,7 +94,7 @@ stdenv.mkDerivation {
     '';
     homepage = "https://github.com/CruiserOne/Daedalus";
     license = lib.licenses.gpl2Plus;
-    platforms = lib.platforms.linux;
+    platforms = [ "x86_64-linux" ];
     mainProgram = "hunger-games";
   };
 }
