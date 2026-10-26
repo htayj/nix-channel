@@ -45,6 +45,7 @@
         pdp6 = pkgs.callPackage ./pkgs/pdp6 { };
         plomrogue = pkgs.callPackage ./pkgs/plomrogue { };
         pycat = pkgs.callPackage ./pkgs/pycat { };
+        shamogu = pkgs.callPackage ./pkgs/shamogu { };
         tapeutils = pkgs.callPackage ./pkgs/tapeutils { };
         vt05 = pkgs.callPackage ./pkgs/vt05 { };
         wrogue = pkgs.callPackage ./pkgs/wrogue { };
@@ -68,7 +69,7 @@
           };
         in {
           inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dhack diabaig freelarn
-            genera-fonts-latin genera-fonts-symbols hunger-games itstar kbredir ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp11 pdp6 plomrogue pycat
+            genera-fonts-latin genera-fonts-symbols hunger-games itstar kbredir ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp11 pdp6 plomrogue pycat shamogu
             tapeutils vt05 wrogue;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
