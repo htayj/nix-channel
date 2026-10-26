@@ -21,6 +21,7 @@
         cadr-fonts-symbols = pkgs.callPackage ./pkgs/cadr-fonts { group = "symbols"; };
         genera-fonts-latin = pkgs.callPackage ./pkgs/genera-fonts { group = "latin"; };
         genera-fonts-symbols = pkgs.callPackage ./pkgs/genera-fonts { group = "symbols"; };
+        itstar = pkgs.callPackage ./pkgs/itstar { };
         kbredir = pkgs.callPackage ./pkgs/kbredir { };
         ks10-udis = pkgs.callPackage ./pkgs/ks10-udis { };
         pdp10-its-disassembler = pkgs.callPackage ./pkgs/pdp10-its-disassembler { };
@@ -49,7 +50,7 @@
           };
         in {
           inherit (self.packages.${system}) apout atarist-font autolith cadr-fonts-latin cadr-fonts-symbols
-            genera-fonts-latin genera-fonts-symbols kbredir ks10-udis pdp10-its-disassembler pdp11 pdp6 pycat
+            genera-fonts-latin genera-fonts-symbols itstar kbredir ks10-udis pdp10-its-disassembler pdp11 pdp6 pycat
             tapeutils vt05;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
