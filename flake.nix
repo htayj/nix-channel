@@ -18,6 +18,7 @@
         agduria = pkgs.callPackage ./pkgs/agduria { };
         apout = pkgs.callPackage ./pkgs/apout { };
         atarist-font = pkgs.callPackage ./pkgs/atarist-font { };
+        atrogue = pkgs.callPackage ./pkgs/atrogue { };
         azurra-gtk-theme = pkgs.callPackage ./pkgs/azurra-gtk-theme { };
         bootrogue = pkgs.callPackage ./pkgs/bootrogue { };
         cadr-fonts-latin = pkgs.callPackage ./pkgs/cadr-fonts { group = "latin"; };
@@ -54,7 +55,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-          inherit (self.packages.${system}) agduria apout atarist-font autolith azurra-gtk-theme bootrogue cadr-fonts-latin cadr-fonts-symbols cryptrover
+          inherit (self.packages.${system}) agduria apout atarist-font atrogue autolith azurra-gtk-theme bootrogue cadr-fonts-latin cadr-fonts-symbols cryptrover
             genera-fonts-latin genera-fonts-symbols itstar kbredir ks10-udis pdp10-its-disassembler pdp11 pdp6 pycat
             tapeutils vt05 wrogue;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
