@@ -22,6 +22,7 @@
         atrogue = pkgs.callPackage ./pkgs/atrogue { };
         avanor = pkgs.callPackage ./pkgs/avanor { };
         azurra-gtk-theme = pkgs.callPackage ./pkgs/azurra-gtk-theme { };
+        blincolnlights = pkgs.callPackage ./pkgs/blincolnlights { };
         bootrogue = pkgs.callPackage ./pkgs/bootrogue { };
         cadr-fonts-latin = pkgs.callPackage ./pkgs/cadr-fonts { group = "latin"; };
         cadr-fonts-symbols = pkgs.callPackage ./pkgs/cadr-fonts { group = "symbols"; };
@@ -68,7 +69,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-          inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dhack diabaig freelarn
+          inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dhack diabaig freelarn
             genera-fonts-latin genera-fonts-symbols hunger-games itstar kbredir ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp11 pdp6 plomrogue pycat shamogu
             tapeutils vt05 wrogue;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
