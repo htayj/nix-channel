@@ -42,6 +42,7 @@
         nrl-text-to-phoneme = pkgs.callPackage ./pkgs/nrl-text-to-phoneme { };
         obumbrata = pkgs.callPackage ./pkgs/obumbrata { };
         pdp10-its-disassembler = pkgs.callPackage ./pkgs/pdp10-its-disassembler { };
+        pdp10-xpl-pdp-10 = pkgs.callPackage ./pkgs/pdp10-xpl-pdp-10 { };
         pdp11 = pkgs.callPackage ./pkgs/pdp11 { };
         pdp6 = pkgs.callPackage ./pkgs/pdp6 { };
         plomrogue = pkgs.callPackage ./pkgs/plomrogue { };
@@ -70,7 +71,7 @@
           };
         in {
           inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dhack diabaig freelarn
-            genera-fonts-latin genera-fonts-symbols hunger-games itstar kbredir ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp11 pdp6 plomrogue pycat shamogu
+            genera-fonts-latin genera-fonts-symbols hunger-games itstar kbredir ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue pycat shamogu
             tapeutils vt05 wrogue;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
