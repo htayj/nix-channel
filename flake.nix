@@ -49,6 +49,7 @@
         pycat = pkgs.callPackage ./pkgs/pycat { };
         shamogu = pkgs.callPackage ./pkgs/shamogu { };
         tapeutils = pkgs.callPackage ./pkgs/tapeutils { };
+        donk-messages-image = pkgs.callPackage ./pkgs/donk-messages-image { };
         vt05 = pkgs.callPackage ./pkgs/vt05 { };
         wrogue = pkgs.callPackage ./pkgs/wrogue { };
       };
@@ -72,7 +73,7 @@
         in {
           inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dhack diabaig freelarn
             genera-fonts-latin genera-fonts-symbols hunger-games itstar kbredir ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue pycat shamogu
-            tapeutils vt05 wrogue;
+            tapeutils donk-messages-image vt05 wrogue;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
