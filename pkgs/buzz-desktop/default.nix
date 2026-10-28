@@ -1,5 +1,5 @@
 { lib, stdenv, fetchurl, dpkg, autoPatchelfHook, wrapGAppsHook3
-, alsa-lib, gtk3, webkitgtk_4_1, libsoup_3, glib-networking }:
+, alsa-lib, gtk3, webkitgtk_4_1, libsoup_3, glib-networking, gst_all_1 }:
 
 stdenv.mkDerivation rec {
   pname = "buzz-desktop";
@@ -11,7 +11,13 @@ stdenv.mkDerivation rec {
   };
 
   nativeBuildInputs = [ dpkg autoPatchelfHook wrapGAppsHook3 ];
-  buildInputs = [ alsa-lib gtk3 webkitgtk_4_1 libsoup_3 glib-networking stdenv.cc.cc.lib ];
+  buildInputs = [
+    alsa-lib gtk3 webkitgtk_4_1 libsoup_3 glib-networking stdenv.cc.cc.lib
+    gst_all_1.gst-plugins-base
+    gst_all_1.gst-plugins-good
+    gst_all_1.gst-plugins-bad
+    gst_all_1.gst-libav
+  ];
 
   unpackPhase = ''
     runHook preUnpack
