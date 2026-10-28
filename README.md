@@ -20,6 +20,8 @@ Credentials remain outside this repository.
 ## Packages
 
 - `autolith`: upstream Autolith, preserving its own Nixpkgs/SBCL pin.
+- `buzz-desktop`: Buzz desktop workspace, repackaged from the upstream Linux
+  release with Nix runtime dependencies and its bundled agent helpers.
 - `gitleaks`: maintenance tool used by the secret-scanning hook.
 
 ## Try locally
