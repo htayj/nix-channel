@@ -4,14 +4,19 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   # Keep Autolith's independent pin: SBCL and its Lisp package set must match.
   inputs.autolith.url = "github:htayj/autolith";
+  # Upstream ships its own packaging; build it against the channel's nixpkgs so
+  # the QML module matches consumers' Qt.
+  inputs.m3shapes.url = "github:soramanew/m3shapes/32ad9ce328bb77ed349b40a3be10ee9ea610b8ab";
+  inputs.m3shapes.inputs.nixpkgs.follows = "nixpkgs";
 
-  outputs = { self, nixpkgs, autolith, ... }:
+  outputs = { self, nixpkgs, autolith, m3shapes, ... }:
     let
       # Start with the platform validated by this channel.
       systems = [ "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       packageSet = system: {
         autolith = autolith.packages.${system}.default;
+        m3shapes = m3shapes.packages.${system}.m3shapes;
       };
       # Channel-maintained definitions, built against the consumer's package set.
       localPackages = pkgs: {
@@ -79,7 +84,7 @@
         in {
           inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dec-fonts dhack diabaig dicom2mesh freelarn
             genera-fonts-latin genera-fonts-symbols grippy-socks hunger-games itstar kbredir kmuddy ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue pycat shamogu
-            tapeutils donk-messages-image vt05 wrogue buzz-desktop rbw-vaultwarden;
+            tapeutils donk-messages-image vt05 wrogue buzz-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
