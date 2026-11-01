@@ -35,6 +35,7 @@
         freelarn = pkgs.callPackage ./pkgs/freelarn { };
         genera-fonts-latin = pkgs.callPackage ./pkgs/genera-fonts { group = "latin"; };
         genera-fonts-symbols = pkgs.callPackage ./pkgs/genera-fonts { group = "symbols"; };
+        grippy-socks = pkgs.callPackage ./pkgs/grippy-socks { };
         hunger-games = pkgs.callPackage ./pkgs/hunger-games { };
         itstar = pkgs.callPackage ./pkgs/itstar { };
         kbredir = pkgs.callPackage ./pkgs/kbredir { };
@@ -75,7 +76,7 @@
           };
         in {
           inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dhack diabaig dicom2mesh freelarn
-            genera-fonts-latin genera-fonts-symbols hunger-games itstar kbredir kmuddy ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue pycat shamogu
+            genera-fonts-latin genera-fonts-symbols grippy-socks hunger-games itstar kbredir kmuddy ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue pycat shamogu
             tapeutils donk-messages-image vt05 wrogue buzz-desktop;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
