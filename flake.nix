@@ -31,6 +31,7 @@
         cryptrover = pkgs.callPackage ./pkgs/cryptrover { };
         dhack = pkgs.callPackage ./pkgs/dhack { };
         diabaig = pkgs.callPackage ./pkgs/diabaig { };
+        dicom2mesh = pkgs.callPackage ./pkgs/dicom2mesh { };
         freelarn = pkgs.callPackage ./pkgs/freelarn { };
         genera-fonts-latin = pkgs.callPackage ./pkgs/genera-fonts { group = "latin"; };
         genera-fonts-symbols = pkgs.callPackage ./pkgs/genera-fonts { group = "symbols"; };
@@ -72,7 +73,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-          inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dhack diabaig freelarn
+          inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dhack diabaig dicom2mesh freelarn
             genera-fonts-latin genera-fonts-symbols hunger-games itstar kbredir ks10-udis martins-dungeon-bash narwharl nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue pycat shamogu
             tapeutils donk-messages-image vt05 wrogue buzz-desktop;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
