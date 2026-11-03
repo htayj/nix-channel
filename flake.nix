@@ -29,6 +29,7 @@
         azurra-gtk-theme = pkgs.callPackage ./pkgs/azurra-gtk-theme { };
         blincolnlights = pkgs.callPackage ./pkgs/blincolnlights { };
         bootrogue = pkgs.callPackage ./pkgs/bootrogue { };
+        brogue-lite = pkgs.callPackage ./pkgs/brogue-lite { };
         buzz-desktop = pkgs.callPackage ./pkgs/buzz-desktop { };
         cadr-fonts-latin = pkgs.callPackage ./pkgs/cadr-fonts { group = "latin"; };
         cadr-fonts-symbols = pkgs.callPackage ./pkgs/cadr-fonts { group = "symbols"; };
@@ -90,7 +91,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-          inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dec-fonts dhack diabaig dicom2mesh freelarn
+          inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dec-fonts dhack diabaig dicom2mesh freelarn
             genera-fonts-latin genera-fonts-symbols grippy-socks hack hunger-games itstar kbredir kbtin kmuddy ks10-udis lyntin martins-dungeon-bash mmapper mushtato narwharl nlarn nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat rapidbrogue shamogu
             tapeutils donk-messages-image vt05 wrogue buzz-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
