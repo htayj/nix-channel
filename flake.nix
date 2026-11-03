@@ -53,6 +53,7 @@
         itstar = pkgs.callPackage ./pkgs/itstar { };
         kbredir = pkgs.callPackage ./pkgs/kbredir { };
         kbtin = pkgs.callPackage ./pkgs/kbtin { };
+        kildclient = pkgs.callPackage ./pkgs/kildclient { };
         kmuddy = pkgs.callPackage ./pkgs/kmuddy { };
         ks10-udis = pkgs.callPackage ./pkgs/ks10-udis { };
         lyntin = pkgs.callPackage ./pkgs/lyntin { };
@@ -98,7 +99,7 @@
           };
         in {
             inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop corerl cryptrover dec-fonts dhack diabaig dicom2mesh emacs-chatgpt-el emacs-org-popup-posframe emacs-treesit-sexp freelarn
-            genera-fonts-latin genera-fonts-symbols grippy-socks gruesome hack hunger-games itstar kbredir kbtin kmuddy ks10-udis lyntin martins-dungeon-bash mmapper mushtato narwharl nitrohack nlarn nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat rapidbrogue shamogu
+            genera-fonts-latin genera-fonts-symbols grippy-socks gruesome hack hunger-games itstar kbredir kbtin kildclient kmuddy ks10-udis lyntin martins-dungeon-bash mmapper mushtato narwharl nitrohack nlarn nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat rapidbrogue shamogu
             tapeutils donk-messages-image vt05 wrogue buzz-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
