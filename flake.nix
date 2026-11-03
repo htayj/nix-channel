@@ -52,6 +52,7 @@
         lyntin = pkgs.callPackage ./pkgs/lyntin { };
         martins-dungeon-bash = pkgs.callPackage ./pkgs/martins-dungeon-bash { };
         mmapper = pkgs.callPackage ./pkgs/mmapper { };
+        mushtato = pkgs.callPackage ./pkgs/mushtato { };
         narwharl = pkgs.callPackage ./pkgs/narwharl { };
         nlarn = pkgs.callPackage ./pkgs/nlarn { };
         nrl-text-to-phoneme = pkgs.callPackage ./pkgs/nrl-text-to-phoneme { };
@@ -89,7 +90,7 @@
           };
         in {
           inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue cadr-fonts-latin cadr-fonts-symbols corerl cryptrover dec-fonts dhack diabaig dicom2mesh freelarn
-            genera-fonts-latin genera-fonts-symbols grippy-socks hack hunger-games itstar kbredir kbtin kmuddy ks10-udis lyntin martins-dungeon-bash mmapper narwharl nlarn nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat shamogu
+            genera-fonts-latin genera-fonts-symbols grippy-socks hack hunger-games itstar kbredir kbtin kmuddy ks10-udis lyntin martins-dungeon-bash mmapper mushtato narwharl nlarn nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat shamogu
             tapeutils donk-messages-image vt05 wrogue buzz-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
