@@ -21,6 +21,7 @@
       # Channel-maintained definitions, built against the consumer's package set.
       localPackages = pkgs: {
         agduria = pkgs.callPackage ./pkgs/agduria { };
+        aiwnios = pkgs.callPackage ./pkgs/aiwnios { };
         apout = pkgs.callPackage ./pkgs/apout { };
         aquesttoofar = pkgs.callPackage ./pkgs/aquesttoofar { };
         atarist-font = pkgs.callPackage ./pkgs/atarist-font { };
@@ -106,7 +107,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-            inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop corerl crashrun cryptrover dec-fonts dhack diabaig dicom2mesh dnethack emacs-chatgpt-el emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp freelarn
+            inherit (self.packages.${system}) agduria aiwnios apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop corerl crashrun cryptrover dec-fonts dhack diabaig dicom2mesh dnethack emacs-chatgpt-el emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp freelarn
             genera-fonts-latin genera-fonts-symbols grippy-socks gruesome grunthack hack hackem hunger-games itstar kbredir kbtin kildclient kmuddy ks10-udis lbforth lyntin martins-dungeon-bash mmapper mushtato narwharl nitrohack nlarn nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat rapidbrogue shamogu
             tapeutils tetraworld donk-messages-image vt05 wrogue you-can-datamosh-on-linux buzz-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
