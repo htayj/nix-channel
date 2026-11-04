@@ -41,6 +41,7 @@
         dhack = pkgs.callPackage ./pkgs/dhack { };
         diabaig = pkgs.callPackage ./pkgs/diabaig { };
         dicom2mesh = pkgs.callPackage ./pkgs/dicom2mesh { };
+        dnethack = pkgs.callPackage ./pkgs/dnethack { };
         emacs-chatgpt-el = pkgs.callPackage ./pkgs/emacs-chatgpt-el { };
         emacs-org-popup-posframe = pkgs.callPackage ./pkgs/emacs-org-popup-posframe { };
         emacs-pbui = pkgs.callPackage ./pkgs/emacs-pbui { };
@@ -103,7 +104,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-            inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop corerl crashrun cryptrover dec-fonts dhack diabaig dicom2mesh emacs-chatgpt-el emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp freelarn
+            inherit (self.packages.${system}) agduria apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop corerl crashrun cryptrover dec-fonts dhack diabaig dicom2mesh dnethack emacs-chatgpt-el emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp freelarn
             genera-fonts-latin genera-fonts-symbols grippy-socks gruesome grunthack hack hunger-games itstar kbredir kbtin kildclient kmuddy ks10-udis lbforth lyntin martins-dungeon-bash mmapper mushtato narwharl nitrohack nlarn nrl-text-to-phoneme obumbrata pdp10-its-disassembler pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat rapidbrogue shamogu
             tapeutils donk-messages-image vt05 wrogue you-can-datamosh-on-linux buzz-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
