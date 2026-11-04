@@ -42,17 +42,32 @@ stdenv.mkDerivation {
       --replace-fail 'if (pwd)' 'if (getenv("HOME")) home = getenv("HOME"); else if (pwd)'
   '';
 
+  # Aiwnios reports HolyC compile and runtime errors as "ERROR:" lines but
+  # still exits 0, so every HolyC run below is checked for them.
   postBuild = ''
+    holycCheck() {
+      if grep -a 'ERROR:' "$1"; then
+        echo "HolyC errors in $1" >&2
+        return 1
+      fi
+    }
+
     export HOME=$PWD/home
     mkdir -p "$HOME" boot
     for f in ../*; do
       [ "$f" = ../build ] || cp -r "$f" boot/
     done
     rm -f boot/HCRT2.BIN boot/HCRT2.DBG.Z boot/Registry.HC.Z
+    # KernelA.HH includes "Headers.HH" relative to the boot root, where the
+    # upstream tree only has Src/Headers.HH.
+    cp boot/Src/Headers.HH boot/Headers.HH
     (cd boot
-     ../aiwnios -d -F -t . -b
+     ../aiwnios -d -F -t . -b 2>&1 | tee ../bootstrap.out
      test -f HCRT2.BIN
-     ../aiwnios -d -F -t . -c FreshOnce.HC)
+     ../aiwnios -d -F -t . -c FreshOnce.HC 2>&1 | tee ../freshonce.out)
+    holycCheck bootstrap.out
+    grep -aq 'Errs:0' bootstrap.out
+    holycCheck freshonce.out
   '';
 
   doCheck = true;
@@ -61,11 +76,12 @@ stdenv.mkDerivation {
     cat > boot/build-check.HC <<'EOF'
     I64 Square(I64 n) {return n*n;}
     if (Square(7)!=49) ExitAiwnios(1);
-    Print("AIWNIOS_BUILD_OK\n");
+    Print("AIWNIOS_BUILD_OK %d\n",Square(9));
     ExitAiwnios(0);
     EOF
-    ./aiwnios -d -F -t boot -c build-check.HC | tee check.out
-    grep -q AIWNIOS_BUILD_OK check.out
+    ./aiwnios -d -F -t boot -c build-check.HC 2>&1 | tee check.out
+    holycCheck check.out
+    grep -aq 'AIWNIOS_BUILD_OK 81' check.out
     rm boot/build-check.HC
     runHook postCheck
   '';
@@ -78,7 +94,7 @@ stdenv.mkDerivation {
     mkdir -p $data/God $data/misc $doc/licenses
     (cd boot
      cp -r AfterEgypt Doc Apps AiwniosHelp Src Demo $data/
-     install -m644 HSNotes.DD PersonalMenu.DD HCRT2.BIN $data/
+     install -m644 Headers.HH HSNotes.DD PersonalMenu.DD HCRT2.BIN $data/
      for f in HCRT2.DBG.Z Registry.HC.Z; do
        if [ -e "$f" ]; then install -m644 "$f" $data/; fi
      done
@@ -96,6 +112,20 @@ stdenv.mkDerivation {
     runHook preInstallCheck
     test -s $out/share/aiwnios/HCRT2.BIN
     grep -q "$out/share/aiwnios" $out/bin/aiwnios
+    # Run the installed binary against a writable copy of the boot template.
+    export HOME=$TMPDIR/installcheck-home
+    mkdir -p "$HOME"
+    cp -r $out/share/aiwnios $TMPDIR/installcheck-T
+    chmod -R u+w $TMPDIR/installcheck-T
+    cat > $TMPDIR/installcheck-T/install-check.HC <<'EOF'
+    I64 Square(I64 n) {return n*n;}
+    Print("AIWNIOS_INSTALL_OK %d\n",Square(12));
+    ExitAiwnios(0);
+    EOF
+    $out/bin/aiwnios -d -F -t $TMPDIR/installcheck-T -c install-check.HC 2>&1 \
+      | tee installcheck.out
+    if grep -a 'ERROR:' installcheck.out; then exit 1; fi
+    grep -aq 'AIWNIOS_INSTALL_OK 144' installcheck.out
     runHook postInstallCheck
   '';
 
