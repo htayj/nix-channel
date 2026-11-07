@@ -110,6 +110,7 @@
         secretpathway = pkgs.callPackage ./pkgs/secretpathway { };
         sbcl-cl-libheif = pkgs.callPackage ./pkgs/sbcl-cl-libheif { };
         sbcl-cl-libtiff = pkgs.callPackage ./pkgs/sbcl-cl-libtiff { };
+        shadow-over-darkmoor = pkgs.callPackage ./pkgs/shadow-over-darkmoor { };
         shamogu = pkgs.callPackage ./pkgs/shamogu { };
         tapeutils = pkgs.callPackage ./pkgs/tapeutils { };
         tassh = pkgs.callPackage ./pkgs/tassh { };
@@ -141,7 +142,7 @@
           };
         in {
             inherit (self.packages.${system}) agduria aiwnios aiwnios-bytecode amstelvar apout aquarium-arena aquesttoofar atarist-font atlas-warriors atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop city-of-the-condemned corerl crashrun cryptrover dec-fonts dhack diabaig dicom2mesh dnethack dragonslayer dungeon-monkey-unlimited durthang emacs-chatgpt-el emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp encircled escape-from-lab-42 everything-is-fodder faangband freelarn
-            genera-fonts-latin genera-fonts-symbols godisc grippy-socks gruesome grunthack hack hackem hellcrawl hunger-games hydra-slayer itstar kbredir kbtin kildclient kmuddy ks10-udis lbforth ludviglundgren-qbittorrent-cli lyntin manna-cadet martins-dungeon-bash mmapper mushtato narwharl nitrohack nlarn notion-river nrl-text-to-phoneme obumbrata ocaml-irc-client ocaml-irc-client-unix ocaml-irc-client-lwt ocaml-irc-client-lwt-ssl pdp10-gcc pdp10-its-disassembler pdp10-suppty pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat rapidbrogue ruby-memoist savescummer secretpathway sbcl-cl-libheif sbcl-cl-libtiff shamogu
+            genera-fonts-latin genera-fonts-symbols godisc grippy-socks gruesome grunthack hack hackem hellcrawl hunger-games hydra-slayer itstar kbredir kbtin kildclient kmuddy ks10-udis lbforth ludviglundgren-qbittorrent-cli lyntin manna-cadet martins-dungeon-bash mmapper mushtato narwharl nitrohack nlarn notion-river nrl-text-to-phoneme obumbrata ocaml-irc-client ocaml-irc-client-unix ocaml-irc-client-lwt ocaml-irc-client-lwt-ssl pdp10-gcc pdp10-its-disassembler pdp10-suppty pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat rapidbrogue ruby-memoist savescummer secretpathway sbcl-cl-libheif sbcl-cl-libtiff shadow-over-darkmoor shamogu
             tapeutils tassh tetraworld trebuchet tui uc-explorer donk-messages-image vt05 wrogue you-can-datamosh-on-linux buzz-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
