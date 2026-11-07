@@ -1,0 +1,186 @@
+Keep all mutable Super-Rogue state under the directory that the srogue
+launcher exports as HOME and ROGUEHOME.  Upstream places its score file in
+the first existing host-wide directory among /var/games/roguelike,
+/var/lib/roguelike, /var/roguelike, /usr/games/lib and /games/roguelik
+whenever ROGUEHOME is unset or missing, and in the working directory when
+none exists; use ROGUEHOME, then HOME, instead.  Listing scores with -s now
+only reads the score file rather than creating it.
+
+Reject a HOME too long for the game's 80-byte home[] buffer, which upstream
+fills with an unbounded strcpy, leaving room for the "/srogue.sav" suffix.
+Also bound the copy of the last message into its 80-byte buffer, which a
+save prompt naming a long state directory could overflow, and refuse to
+restore a save path longer than the 256-byte file_name[] buffer.
+
+Saves store long values as 4 bytes, but rs_read_long and rs_read_ulong
+read them into the low half of a long and returned its uninitialized upper
+half as well on LP64 systems, so a restored game showed garbage experience
+points and could inherit stray creature flags.  Read them as 4-byte
+integers instead.
+
+--- a/srogue/io.c
++++ b/srogue/io.c
+@@ -73,7 +73,10 @@
+ void
+ endmsg(void)
+ {
+-	strcpy(huh, msgbuf);
++	/* Messages can be longer than huh[], e.g. a save prompt naming a
++	 * long state directory; keep only what fits. */
++	strncpy(huh, msgbuf, LINLEN - 1);
++	huh[LINLEN - 1] = '\0';
+ 	if (mpos > 0) {
+ 		wmove(cw, 0, mpos);
+ 		waddstr(cw, morestr);
+--- a/srogue/main.c
++++ b/srogue/main.c
+@@ -50,10 +50,20 @@
+ 	char alldone;
+ 	int wpt;
+ 	char *getpass(), *xcrypt(), *strrchr();
+-	char *homedir = roguehome();
++	char *homedir;
+ 
+ 	md_init();
+ 
++	/* HOME must leave room for "/srogue.sav" in home[] and file_name[].
++	 * Refuse a longer one before any state file is opened. */
++	if ((env = getenv("HOME")) != NULL &&
++	    strlen(env) > LINLEN - sizeof("/srogue.sav")) {
++		fprintf(stderr, "srogue: HOME is too long (at most %d bytes)\n",
++			(int) (LINLEN - sizeof("/srogue.sav")));
++		exit(1);
++	}
++
++	homedir = roguehome();
+ 	if (homedir == NULL)
+         	homedir = "";
+ 
+@@ -74,14 +84,17 @@
+ 		strcat(scorefile,"/");
+ 	strcat(scorefile, "srogue.scr");
+ #endif
+-        open_records();
+ 
++	/* Listing the scores only reads the score file; showtop() opens it
++	 * read-only itself, so do not create or open it for writing here. */
+ 	if(argc >= 2 && strcmp(argv[1], "-s") == 0)
+ 	{
+ 		showtop(0);
+ 		exit(0);
+ 	}
+ 
++        open_records();
++
+ #ifdef WIZARD
+ 	if (argc >= 2 && author() && strcmp(argv[1],"-a") == 0)
+ 	{
+@@ -446,37 +459,22 @@
+     static char path[LINLEN+16];
+     char *end,*home;
+ 
+-    if ( (home = getenv("ROGUEHOME")) != NULL)
+-    {
+-        if (*home)
+-        {
+-            /* LINLEN - 11 is all that will fit into scorefile */
+-            strncpy(path, home, LINLEN - 11);
+-            if (path[LINLEN - 12] == '\0')
+-            {
+-                end = &path[strlen(path)-1];
+-                while( (end >= path) && ((*end == '/') || (*end == '\\')))
+-                    *end-- = '\0';
++    /* Keep the score file in the player's own ROGUEHOME, or else in HOME;
++     * never fall back to a shared host directory such as /var/games. */
++    home = getenv("ROGUEHOME");
++    if (home == NULL || *home == '\0' ||
++        strlen(home) > LINLEN - 12 || !directory_exists(home))
++        home = getenv("HOME");
++    /* LINLEN - 11 is all that will fit into scorefile */
++    if (home == NULL || *home == '\0' || strlen(home) > LINLEN - 12)
++        return(NULL);
+ 
+-                if (directory_exists(path))
+-                    return(path);
+-            }
+-            /* Otherwise home was truncated and should be ignored */
+-        }
+-    }
++    strcpy(path, home);
++    end = &path[strlen(path)-1];
++    while( (end >= path) && ((*end == '/') || (*end == '\\')))
++        *end-- = '\0';
+ 
+-    if (directory_exists("/var/games/roguelike"))
+-        return("/var/games/roguelike");
+-    if (directory_exists("/var/lib/roguelike"))
+-        return("/var/lib/roguelike");
+-    if (directory_exists("/var/roguelike"))
+-        return("/var/roguelike");
+-    if (directory_exists("/usr/games/lib"))
+-        return("/usr/games/lib");
+-    if (directory_exists("/games/roguelik"))
+-        return("/games/roguelik");
+-
+-    return(NULL);
++    return(path);
+ }
+ 
+ void
+--- a/srogue/save.c
++++ b/srogue/save.c
+@@ -204,6 +204,12 @@
+ 	STAT sbuf2;
+ 	int slines, scols;
+ 
++	/* file_name[] receives this path once the game is restored. */
++	if (strlen(file) >= 256) {
++		printf("Save file name is too long\n");
++		return FALSE;
++	}
++
+ 	if ((inf = fopen(file, "r")) == NULL) {
+ 		if (use_savedir && errno == ENOENT)
+ 			return TRUE;
+--- a/srogue/state.c
++++ b/srogue/state.c
+@@ -680,7 +680,9 @@
+ rs_read_long(FILE *inf, long *i)
+ {
+     unsigned char bytes[4];
+-    long input;
++    /* The writers store 4 bytes; reading them into an 8-byte long left
++     * its upper half uninitialized. */
++    int input;
+     unsigned char *buf = (unsigned char *) &input;
+     
+     rs_read(inf, &input, 4);
+@@ -694,7 +696,7 @@
+         buf = bytes;
+     }
+     
+-    *i = *((long *) buf);
++    *i = *((int *) buf);
+ 
+     return(READSTAT);
+ }
+@@ -722,7 +724,9 @@
+ rs_read_ulong(FILE *inf, unsigned long *i)
+ {
+     unsigned char bytes[4];
+-    unsigned long input;
++    /* The writers store 4 bytes; reading them into an 8-byte long left
++     * its upper half uninitialized. */
++    unsigned int input;
+     unsigned char *buf = (unsigned char *) &input;
+     
+     rs_read(inf, &input, 4);
+@@ -736,7 +740,7 @@
+         buf = bytes;
+     }
+     
+-    *i = *((unsigned long *) buf);
++    *i = *((unsigned int *) buf);
+ 
+     return(READSTAT);
+ }
