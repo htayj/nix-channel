@@ -58,6 +58,7 @@
         freelarn = pkgs.callPackage ./pkgs/freelarn { };
         genera-fonts-latin = pkgs.callPackage ./pkgs/genera-fonts { group = "latin"; };
         genera-fonts-symbols = pkgs.callPackage ./pkgs/genera-fonts { group = "symbols"; };
+        godisc = pkgs.callPackage ./pkgs/godisc { };
         grippy-socks = pkgs.callPackage ./pkgs/grippy-socks { };
         gruesome = pkgs.callPackage ./pkgs/gruesome { };
         grunthack = pkgs.callPackage ./pkgs/grunthack { };
@@ -133,7 +134,7 @@
           };
         in {
             inherit (self.packages.${system}) agduria aiwnios amstelvar apout aquesttoofar atarist-font atrogue autolith avanor azurra-gtk-theme blincolnlights bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop city-of-the-condemned corerl crashrun cryptrover dec-fonts dhack diabaig dicom2mesh dnethack dragonslayer durthang emacs-chatgpt-el emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp encircled escape-from-lab-42 everything-is-fodder faangband freelarn
-            genera-fonts-latin genera-fonts-symbols grippy-socks gruesome grunthack hack hackem hellcrawl hunger-games hydra-slayer itstar kbredir kbtin kildclient kmuddy ks10-udis lbforth ludviglundgren-qbittorrent-cli lyntin manna-cadet martins-dungeon-bash mmapper mushtato narwharl nitrohack nlarn notion-river nrl-text-to-phoneme obumbrata ocaml-irc-client ocaml-irc-client-unix ocaml-irc-client-lwt ocaml-irc-client-lwt-ssl pdp10-gcc pdp10-its-disassembler pdp10-suppty pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat rapidbrogue ruby-memoist sbcl-cl-libheif sbcl-cl-libtiff shamogu
+            genera-fonts-latin genera-fonts-symbols godisc grippy-socks gruesome grunthack hack hackem hellcrawl hunger-games hydra-slayer itstar kbredir kbtin kildclient kmuddy ks10-udis lbforth ludviglundgren-qbittorrent-cli lyntin manna-cadet martins-dungeon-bash mmapper mushtato narwharl nitrohack nlarn notion-river nrl-text-to-phoneme obumbrata ocaml-irc-client ocaml-irc-client-unix ocaml-irc-client-lwt ocaml-irc-client-lwt-ssl pdp10-gcc pdp10-its-disassembler pdp10-suppty pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat rapidbrogue ruby-memoist sbcl-cl-libheif sbcl-cl-libtiff shamogu
             tapeutils tassh tetraworld trebuchet uc-explorer donk-messages-image vt05 wrogue you-can-datamosh-on-linux buzz-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
