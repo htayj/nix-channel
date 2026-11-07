@@ -1,0 +1,166 @@
+Build You Only Live Once 005 as a curses-only program on GNU/Linux.
+
+The upstream linuxport Makefile builds the SDL port: it compiles
+gfx_sdl.cpp, queries sdl-config, and links SDL.  The curses port is selected
+with -DUSE_CURSES and linked with ncurses only, as in the upstream macport
+Makefile; the SDL port and its alphabet.bmp font are not built.  enummaker
+does not use SDL either, and premake no longer copies data files or the
+bitmap font, because the game now reads them from LIVEONCE_DATADIR.
+
+Read text.txt, valley.map, and piecelist.map from LIVEONCE_DATADIR (the
+current directory by default) so that the read-only data can live in the
+store while valley.sav is still written relative to the working directory.
+
+Include <unistd.h> and <string.h> for usleep, sleep, unlink, memcpy, and
+memmove, which current glibc and GCC no longer declare implicitly.
+
+diff -ruN a/src/gfx_curses.cpp b/src/gfx_curses.cpp
+--- a/src/gfx_curses.cpp
++++ b/src/gfx_curses.cpp
+@@ -51,12 +51,15 @@
+ using namespace std;
+ 
+ #include <assert.h>
++#include <string.h>
+ 
+ // Windows specific code
+ #ifdef WIN32
+ #include <windows.h>
+ #define usleep(x) Sleep((x)/1000)
+ #define sleep(x) Sleep((x))
++#else
++#include <unistd.h>
+ #endif
+ 
+ #include <curses.h>
+diff -ruN a/src/linuxport/Makefile b/src/linuxport/Makefile
+--- a/src/linuxport/Makefile
++++ b/src/linuxport/Makefile
+@@ -1,9 +1,15 @@
++# Curses-only build.  The SDL port and its screen-captured alphabet.bmp
++# font are not built or installed.
+ TARGET = liveonce
+ 
++CXX = g++
++CXXFLAGS = -O3
++LIVEONCE_DATADIR = .
++ENUMMAKER = support/enummaker/enummaker
++
+ OFILES = linuxport.o \
+ 	 ../gfxengine.o \
+ 	 ../gfx_curses.o \
+-	 ../gfx_sdl.o \
+ 	 ../grammar.o \
+ 	 ../item.o \
+ 	 ../map.o \
+@@ -17,20 +23,16 @@
+ 	 ../glbdef.o
+ 
+ .cpp.o:
+-	g++ -O3 `sdl-config --cflags` -c $< -o $@
++	$(CXX) $(CXXFLAGS) -DUSE_CURSES '-DLIVEONCE_DATADIR="$(LIVEONCE_DATADIR)"' -c $< -o $@
+ 
+ all: $(TARGET)
+ 
+ $(TARGET): $(OFILES)
+-	g++ -O3 -o $(TARGET) $(OFILES) `sdl-config --libs` -lcurses
++	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OFILES) -lncurses
+ 
+ clean:
+-	rm -f *.o
++	rm -f *.o ../*.o
+ 	rm -f $(TARGET)
+ 
+ premake:
+-	cp ../text.txt .
+-	cp ../rooms/valley.map .
+-	cp ../rooms/piecelist.map .
+-	cp ../gfx/alphabet_12x16.bmp alphabet.bmp
+-	cd .. ; enummaker source.txt
++	cd .. && $(ENUMMAKER) source.txt
+diff -ruN a/src/main.cpp b/src/main.cpp
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -13,6 +13,9 @@
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <assert.h>
++#ifndef WIN32
++#include <unistd.h>
++#endif
+ 
+ #include "gfxengine.h"
+ #include "glbdef.h"
+@@ -249,7 +252,7 @@
+     {
+ 	mainmap = new MAP;
+ 	// map->build(0);
+-	mainmap->loadMap("valley.map");
++	mainmap->loadMap(LIVEONCE_DATADIR "/valley.map");
+ 
+ 	MAP::setMainMap(mainmap);
+     }
+diff -ruN a/src/map.cpp b/src/map.cpp
+--- a/src/map.cpp
++++ b/src/map.cpp
+@@ -239,7 +239,7 @@
+ PIECEDICT::PIECEDICT()
+ {
+     char		buf[100];
+-    ifstream		is("piecelist.map");
++    ifstream		is(LIVEONCE_DATADIR "/piecelist.map");
+     u8			map[5][5];
+     int			x, y, i;
+ 
+diff -ruN a/src/support/enummaker/Makefile b/src/support/enummaker/Makefile
+--- a/src/support/enummaker/Makefile
++++ b/src/support/enummaker/Makefile
+@@ -1,15 +1,18 @@
+ TARGET = enummaker
+ 
++CXX = g++
++CXXFLAGS = -O3
++
+ OFILES = enummaker.o \
+ 	 StdAfx.o
+ 
+ .cpp.o:
+-	g++ -O3 `sdl-config --cflags` -c $< -o $@
++	$(CXX) $(CXXFLAGS) -c $< -o $@
+ 
+ all: $(TARGET)
+ 
+ $(TARGET): $(OFILES)
+-	g++ -O3 -o $(TARGET) $(OFILES) `sdl-config --libs`
++	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OFILES)
+ 
+ clean:
+ 	rm -f *.o
+diff -ruN a/src/text.cpp b/src/text.cpp
+--- a/src/text.cpp
++++ b/src/text.cpp
+@@ -39,7 +39,7 @@
+ void
+ text_init()
+ {
+-    ifstream	is("text.txt");
++    ifstream	is(LIVEONCE_DATADIR "/text.txt");
+     char	line[500];
+     bool	hasline = false;
+     char	*text;
+diff -ruN a/src/text.h b/src/text.h
+--- a/src/text.h
++++ b/src/text.h
+@@ -13,6 +13,12 @@
+ #ifndef __text__
+ #define __text__
+ 
++// Directory holding the read-only text.txt, valley.map, and piecelist.map.
++// Saved games are still written relative to the working directory.
++#ifndef LIVEONCE_DATADIR
++#define LIVEONCE_DATADIR "."
++#endif
++
+ void text_init();
+ void text_shutdown();
+ 
