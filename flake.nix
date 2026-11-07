@@ -60,6 +60,7 @@
         escape-from-lab-42 = pkgs.callPackage ./pkgs/escape-from-lab-42 { };
         everything-is-fodder = pkgs.callPackage ./pkgs/everything-is-fodder { };
         faangband = pkgs.callPackage ./pkgs/faangband { };
+        ffglitch = pkgs.callPackage ./pkgs/ffglitch { };
         freelarn = pkgs.callPackage ./pkgs/freelarn { };
         genera-fonts-latin = pkgs.callPackage ./pkgs/genera-fonts { group = "latin"; };
         genera-fonts-symbols = pkgs.callPackage ./pkgs/genera-fonts { group = "symbols"; };
