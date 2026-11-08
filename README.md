@@ -22,6 +22,8 @@ Credentials remain outside this repository.
 - `autolith`: upstream Autolith, preserving its own Nixpkgs/SBCL pin.
 - `buzz-desktop`: Buzz desktop workspace, repackaged from the upstream Linux
   release with Nix runtime dependencies and its bundled agent helpers.
+- `openclaw-desktop`: OpenClaw's Tauri companion with Nix runtime dependencies,
+  a system tray, and saved local or remote Gateway connections.
 - `gitleaks`: maintenance tool used by the secret-scanning hook.
 
 ## Try locally
