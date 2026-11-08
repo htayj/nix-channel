@@ -1,7 +1,7 @@
 { dockerTools, nodejs_22, cacert, runCommand
 , bridgeSource ? builtins.fetchGit {
-    url = "https://forge.nogroup.group/tay/bridge.git";
-    rev = "8b12a0a2c3443965b9ac19481ab5f57433c00f8a";
+    url = "ssh://git@192.168.7.121/tay/bridge.git";
+    rev = "1c7da0d5c538f5c09af5fae5d5dd70825212a1fe";
   }
 }:
 let
@@ -11,7 +11,7 @@ let
   '';
 in dockerTools.buildLayeredImage {
   name = "localhost/donk-messages";
-  tag = "8b12a0a";
+  tag = "1c7da0d";
   contents = [ application nodejs_22 cacert ];
   config = {
     User = "1000:1000";
@@ -24,6 +24,6 @@ in dockerTools.buildLayeredImage {
     ];
     ExposedPorts."8080/tcp" = { };
     Labels."org.opencontainers.image.source" = "https://forge.nogroup.group/tay/bridge";
-    Labels."org.opencontainers.image.revision" = "8b12a0a2c3443965b9ac19481ab5f57433c00f8a";
+    Labels."org.opencontainers.image.revision" = "1c7da0d5c538f5c09af5fae5d5dd70825212a1fe";
   };
 }
