@@ -206,6 +206,9 @@ stdenv.mkDerivation {
     runHook postInstallCheck
   '';
 
+  # Shared with god-of-change, which needs the same historical renderer.
+  passthru.libtcod = libtcod;
+
   meta = {
     description = "Original Dwarftown roguelike from the 2011 Seven Day Roguelike Challenge";
     longDescription = ''
