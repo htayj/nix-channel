@@ -143,6 +143,7 @@
         donk-messages-image = pkgs.callPackage ./pkgs/donk-messages-image { };
         vt05 = pkgs.callPackage ./pkgs/vt05 { };
         wrogue = pkgs.callPackage ./pkgs/wrogue { };
+        xnethack = pkgs.callPackage ./pkgs/xnethack { };
         you-can-datamosh-on-linux = pkgs.callPackage ./pkgs/you-can-datamosh-on-linux { };
       };
     in {
@@ -165,7 +166,7 @@
         in {
             inherit (self.packages.${system}) agduria aiwnios aiwnios-bytecode amstelvar apout aquarium-arena aquesttoofar atarist-font atlas-warriors atrogue autolith avanor axmud azurra-gtk-theme bcrawl bell-museum blincolnlights bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop city-of-the-condemned clojure-roguelike corerl cotd crashrun cryptrover dec-fonts dhack diabaig dicom2mesh dnethack dragonslayer dungeon-monkey-unlimited durthang dwarftown emacs-chatgpt-el emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp encircled escape-from-lab-42 everything-is-fodder faangband farmingrl fiqhack freelarn
             genera-fonts-latin genera-fonts-symbols god-of-change godisc grippy-socks gruesome grunthack hack hackem hellcrawl hunger-games hydra-slayer itstar kbredir kbtin kildclient kmuddy ks10-udis lbforth liveonce ludviglundgren-qbittorrent-cli lyntin manna-cadet martins-dungeon-bash mmapper mushtato narwharl nitrohack nlarn node-unrs-resolver notion-river nrl-text-to-phoneme obumbrata ocaml-irc-client ocaml-irc-client-unix ocaml-irc-client-lwt ocaml-irc-client-lwt-ssl pdp10-gcc pdp10-its-disassembler pdp10-suppty pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat raelives rapidbrogue rouge ruby-memoist savescummer secretpathway sbcl-cl-libheif sbcl-cl-libtiff sewer-massacre shadow-over-darkmoor shamogu six-two-one srogue
-            tapeutils tassh terminaldrome tetraworld the-smiths-hand trebuchet tui uc-explorer donk-messages-image vt05 wrogue you-can-datamosh-on-linux buzz-desktop openclaw-desktop rbw-vaultwarden m3shapes;
+            tapeutils tassh terminaldrome tetraworld the-smiths-hand trebuchet tui uc-explorer donk-messages-image vt05 wrogue xnethack you-can-datamosh-on-linux buzz-desktop openclaw-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
