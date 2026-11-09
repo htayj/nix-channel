@@ -12,7 +12,10 @@ stdenv.mkDerivation (finalAttrs: {
     repo = "lbForth";
     rev = "912433b150b64252070116a5fd5c1a29ff29b26d";
     fetchSubmodules = true;
-    hash = "sha256-CSIN7cPua01TcGw6CUYNv2jSie8riPzysf2ArO6c+0c=";
+    # fetchgit checks out with .gitattributes applied, so the Windows build
+    # files marked eol=crlf (*.bat, *.sln, *.vcxproj, packages.config) get
+    # CRLF line endings; the hash covers that checkout, not the raw blobs.
+    hash = "sha256-Nh6IuSoaggI98+FWAE4he+RhOoRZ4zczqlZGP7j68jw=";
   };
 
   nativeBuildInputs = [ sbcl ];
