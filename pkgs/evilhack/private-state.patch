@@ -1,0 +1,58 @@
+From: tay-channel <noreply@localhost>
+Date: Sat, 3 Oct 2026 00:00:00 +0000
+Subject: [PATCH] Keep native variable prefixes in the launcher-owned state tree
+
+Guix, 2026-10-03: EvilHack's Unix port normally sets VAR_PLAYGROUND only
+when using its compiled default data directory.  The launcher uses a fresh
+playground containing immutable data links, so initialize the native variable
+prefixes independently of that data-directory choice.  No save format,
+gameplay, command, or frontend is changed.  A direct invocation without the
+launcher retains the upstream current-directory fallback.
+
+--- a/sys/unix/unixmain.c
++++ b/sys/unix/unixmain.c
+@@ -480,6 +480,22 @@
+ const char *dir;
+ boolean wr;
+ {
++    /* Guix, 2026-10-03: private state is independent of the data directory. */
++#ifdef VAR_PLAYGROUND
++    const char *vardir = nh_getenv("EVILHACK_STATE");
++    int len;
++
++    if (!vardir || !*vardir)
++        vardir = ".";
++    len = strlen(vardir);
++    fqn_prefix[SCOREPREFIX] = (char *) alloc(len + 2);
++    Strcpy(fqn_prefix[SCOREPREFIX], vardir);
++    if (fqn_prefix[SCOREPREFIX][len - 1] != '/') {
++        fqn_prefix[SCOREPREFIX][len] = '/';
++        fqn_prefix[SCOREPREFIX][len + 1] = '\0';
++    }
++#endif
++
+     if (dir /* User specified directory? */
+ #ifdef HACKDIR
+         && strcmp(dir, HACKDIR) /* and not the default? */
+@@ -491,21 +507,6 @@
+             nh_terminate(EXIT_FAILURE);
+         }
+ #endif
+-    } else {
+-        /* non-default data files is a sign that scores may not be
+-         * compatible, or perhaps that a binary not fitting this
+-         * system's layout is being used.
+-         */
+-#ifdef VAR_PLAYGROUND
+-        int len = strlen(VAR_PLAYGROUND);
+-
+-        fqn_prefix[SCOREPREFIX] = (char *) alloc(len + 2);
+-        Strcpy(fqn_prefix[SCOREPREFIX], VAR_PLAYGROUND);
+-        if (fqn_prefix[SCOREPREFIX][len - 1] != '/') {
+-            fqn_prefix[SCOREPREFIX][len] = '/';
+-            fqn_prefix[SCOREPREFIX][len + 1] = '\0';
+-        }
+-#endif
+     }
+ 
+ #ifdef HACKDIR

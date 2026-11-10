@@ -1,0 +1,232 @@
+.\" SPDX-License-Identifier: MIT
+.\" Copyright (c) 2026 the guix-channel contributors
+.\"
+.\" Permission is hereby granted, free of charge, to any person obtaining a
+.\" copy of this software and associated documentation files (the "Software"),
+.\" to deal in the Software without restriction, including without limitation
+.\" the rights to use, copy, modify, merge, publish, distribute, sublicense,
+.\" and/or sell copies of the Software, and to permit persons to whom the
+.\" Software is furnished to do so, subject to the following conditions:
+.\"
+.\" The above copyright notice and this permission notice shall be included in
+.\" all copies or substantial portions of the Software.
+.\"
+.\" THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+.\" IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+.\" FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+.\" THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+.\" LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+.\" FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+.\" DEALINGS IN THE SOFTWARE.
+.\"
+.\" Original implementation, 2026-10-03. Interface sources: EvilHack 0.9.3
+.\" doc/mn.7, doc/mnh.7, doc/Guidebook.mn and Gbk-1pg-{pfx,sfx}.mn.
+.\" GNU groff manual, Parameters and Input Line Traps, consulted 2026-10-03:
+.\" https://www.gnu.org/software/groff/manual/html_node/Parameters.html
+.\" https://www.gnu.org/software/groff/manual/html_node/Input-Line-Traps.html
+.\" Neither tmac.n nor tmac.nh implementation was used or inspected.
+.\" This adapter implements the Guidebook's used public interface, not the
+.\" unused news-document facilities. tbl retains every real table unchanged.
+.\"
+.po 5n
+.ll 70n
+.lt 70n
+.ps 12
+.vs 14
+.if n .vs 1v
+.nr pi 5n
+.nr li 5n
+.nr eh-indent-depth 0
+.nr eh-section-1 0
+.nr eh-section-2 0
+.nr eh-section-3 0
+.nr eh-section-4 0
+.\" Paginated output has running titles; the supplied 1P prefix disables them.
+.de eh-top
+.ie \\n[1P] .sp 2v
+.el \{\
+.sp 1v
+.tl '\\*[h0]'\\*[h1]'\\*[h2]'
+.sp 2v
+.\}
+..
+.de eh-bottom
+.if !\\n[1P] \{\
+.sp 1v
+.tl '\\*[f0]'\\*[f1]'\\*[f2]'
+.bp
+.\}
+..
+.wh 0 eh-top
+.wh -3v eh-bottom
+.\" The native title and author blocks each contain two productive lines.
+.de mt
+.br
+.in 0
+.sp 2v
+.ft B
+.ce 2
+.it 2 eh-title-end
+..
+.de eh-title-end
+.br
+.ft R
+..
+.de au
+.br
+.sp 1v
+.ce 2
+..
+.\" hn prefixes the next input line; an input trap ends bold after the title.
+.de hn
+.br
+.in 0
+.fi
+.ft R
+.sp 1v
+.ne 3v
+.nr eh-level 1
+.if \\n[.$] .nr eh-level \\$1
+.nr eh-section-\\n[eh-level] +1
+.if \\n[eh-level]<4 .nr eh-section-4 0
+.if \\n[eh-level]<3 .nr eh-section-3 0
+.if \\n[eh-level]<2 .nr eh-section-2 0
+.ds eh-number \\n[eh-section-1]
+.if \\n[eh-level]>1 .as eh-number .\\n[eh-section-2]
+.if \\n[eh-level]>2 .as eh-number .\\n[eh-section-3]
+.if \\n[eh-level]>3 .as eh-number .\\n[eh-section-4]
+.ft B
+.itc 1 eh-title-end
+\\*[eh-number].  \\c
+..
+.de pg
+.br
+.fi
+.in 0
+.ft R
+.sp 1v
+.if !'\\$1'l' .ti \\n[pi]u
+..
+.\" Empty lp labels continue at the description margin. Long labels get
+.\" their own line, while short keys share a line with their description.
+.de lp
+.br
+.fi
+.ft R
+.sp 1v
+.nr eh-paragraph-indent \\n[li]
+.if \\n[.$]>1 .nr eh-paragraph-indent \\$2n
+.in \\n[eh-paragraph-indent]u
+.if !'\\$1'' \{\
+.nr eh-label-width \\w'\\$1'
+.ti -\\n[eh-paragraph-indent]u
+.ie \\n[eh-label-width]<\\n[eh-paragraph-indent] \{\
+.nr eh-label-gap \\n[eh-paragraph-indent]-\\n[eh-label-width]
+\\&\\$1\\h'\\n[eh-label-gap]u'\\c
+.\}
+.el \{\
+\\&\\$1
+.br
+.\}
+.\}
+..
+.de si
+.br
+.nr eh-indent-depth +1
+.nr eh-indent-\\n[eh-indent-depth] \\n[.i]
+.ie \\n[.$] .in +\\$1
+.el .in +5n
+..
+.de ei
+.br
+.if \\n[eh-indent-depth]>0 \{\
+.in \\n[eh-indent-\\n[eh-indent-depth]]u
+.nr eh-indent-depth -1
+.\}
+..
+.\" Displays save formatting without diverting text or altering table input.
+.de SD
+.br
+.sp 1v
+.nr eh-display-indent \\n[.i]
+.nr eh-display-fill \\n[.u]
+.nr eh-display-adjust \\n[.j]
+.nr eh-display-font \\n[.f]
+.nf
+.if !'\\$1'n' .in +5n
+.if '\\$1'c' .ce 10000
+..
+.de ED
+.br
+.ce 0
+.in \\n[eh-display-indent]u
+.if \\n[eh-display-fill] .fi
+.ad \\n[eh-display-adjust]
+.ft \\n[eh-display-font]
+.sp 1v
+..
+.als sd SD
+.als ed ED
+.\" PS measures a sample label; PL uses a hanging field with a dash separator.
+.de PS
+.br
+.sp 1v
+.nr eh-list-indent \\n[.i]
+.nr eh-list-width \\w'\\$1'+3n
+.in +\\n[eh-list-width]u
+..
+.de PL
+.br
+.ti -\\n[eh-list-width]u
+.nr eh-list-gap \\n[eh-list-width]-\\w'\\$1'-2n
+\\&\\$1\\h'\\n[eh-list-gap]u'\- \\c
+..
+.de PE
+.br
+.in \\n[eh-list-indent]u
+.sp 1v
+..
+.de CC
+.br
+\\&\\$1  \\$2
+.br
+..
+.de BR
+.br
+.ie \\n[.$] .sp \\$1v
+.el .sp 1v
+.\" A long single page must not trigger pagination-only keep-together logic.
+.if !\\n[1P] .ne 3v
+..
+.\" tbl invokes these hooks around its generated GNU roff table machinery.
+.de TS
+.br
+.sp 1v
+..
+.de TE
+.br
+.sp 1v
+..
+.\" Inline macros implement the documented prefix/text/suffix argument order.
+.de b
+.ie \\n[.$] \\&\\$3\\fB\\$1\\fP\\$2
+.el .ft B
+..
+.de i
+.ie \\n[.$] \\&\\$3\\fI\\$1\\fP\\$2
+.el .ft I
+..
+.als op b
+.de sm
+.ie \\n[.$] \\&\\$3\\s-2\\$1\\s0\\$2
+.el .ps -2
+..
+.de UX
+\\&\\$2\\fIUNIX\\fP\\$1
+..
+.de UR
+\\&\\fI\\$1\\fP\\$2
+..
+.\" Some upstream lines use ." instead of .\" for disabled debug prose.
+.de "
+..
