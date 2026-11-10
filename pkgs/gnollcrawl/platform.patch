@@ -1,0 +1,19 @@
+Use the selected mutable Crawl directory for the independent macro default.
+
+CRAWL_DIR already controls saves and caches, but the upstream Unix macro
+default separately points at HOME/.crawl.  Honor CRAWL_DIR without changing
+HOME or the original user-configuration search, and preserve explicit -macro.
+
+--- a/crawl-ref/source/initfile.cc
++++ b/crawl-ref/source/initfile.cc
+@@ -709,7 +709,9 @@
+     if (macro_dir.empty())
+     {
+ #ifdef UNIX
+-        macro_dir = _user_home_subpath(".crawl");
++        macro_dir = SysEnv.crawl_dir.empty()
++                    ? _user_home_subpath(".crawl")
++                    : SysEnv.crawl_dir;
+ #else
+         macro_dir = "settings/";
+ #endif
