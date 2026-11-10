@@ -1,0 +1,47 @@
+Build the original complete alpha on GNU/Linux.  SDL 1.2 does not supply an
+SDL_main trampoline on this platform.  Name the entry point main, and use the
+class name (not the constructor's qualified name) in new expressions.
+No gameplay, RNG, world generation or save code changes.
+
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -39,7 +39,7 @@
+ 
+ using namespace std;
+ 
+-extern "C" int SDL_main(int argc, char **argv)
++int main(int argc, char **argv)
+ {
+     /*
+     // This goes first just so we're really fucking sure it's done first
+--- a/src/Window.cpp
++++ b/src/Window.cpp
+@@ -32,7 +32,7 @@
+     
+     visible = true;
+ 
+-    tcodWin = new TCODConsole::TCODConsole(bbox.size.x,bbox.size.y);
++    tcodWin = new TCODConsole(bbox.size.x,bbox.size.y);
+     tcodWin->setDefaultBackground(TCODColor::black);
+     tcodWin->setDefaultForeground(TCODColor::green);
+     
+@@ -64,7 +64,7 @@
+     
+     // New TCOD console with new dims
+     delete tcodWin;
+-    tcodWin = new TCODConsole::TCODConsole(bbox.size.x,bbox.size.y);
++    tcodWin = new TCODConsole(bbox.size.x,bbox.size.y);
+     tcodWin->setDefaultBackground(TCODColor::darkerGrey);
+     tcodWin->setDefaultForeground(TCODColor::darkGreen);
+ 
+--- a/src/Path.h
++++ b/src/Path.h
+@@ -27,7 +27,7 @@
+ #include <vector>
+ 
+ #include "Tile.h"
+-#include "Util.h"
++#include "Utils.h"
+ 
+ using namespace std;
+ 
