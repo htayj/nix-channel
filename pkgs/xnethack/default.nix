@@ -18,13 +18,27 @@ stdenv.mkDerivation {
   buildInputs = [ lua5_4 ncurses ];
 
   postPatch = ''
-    # NGPL 2(a): identify every source file changed by this build.
-    for f in include/config.h include/unixconf.h src/windows.c; do
-      { printf '/* Modified by the tay Nix channel: reproducible build, XDG state\n'
-        printf ' * paths, optional dump logs.  See pkgs/xnethack/default.nix. */\n'
-        cat "$f"; } > "$f.new"
-      mv "$f.new" "$f"
-    done
+    # NGPL 2(a): every upstream file changed below carries a notice stating
+    # the change and its date.  The notices avoid the substitution patterns.
+    notice() {
+      { printf '%s\n' "$2"; cat "$1"; } > "$1.new"
+      mv "$1.new" "$1"
+    }
+    notice include/config.h \
+      '/* Modified 2026-11-09 by the tay Nix channel: REPRODUCIBLE_BUILD enabled.  See pkgs/xnethack/default.nix. */'
+    notice include/unixconf.h \
+      '/* Modified 2026-11-09 by the tay Nix channel: VAR_PLAYGROUND read from XNETHACK_VAR_PLAYGROUND, SERVER_ADMIN_MSG disabled.  See pkgs/xnethack/default.nix. */'
+    notice src/windows.c \
+      '/* Modified 2026-11-09 by the tay Nix channel: dump_open_log() skips unset DUMPLOGFILE and DUMPHTMLFILE.  See pkgs/xnethack/default.nix. */'
+    notice sys/unix/hints/linux.500 \
+      '# Modified 2026-11-09 by the tay Nix channel: gzip taken from the Nix store, git queries removed.  See pkgs/xnethack/default.nix.'
+    notice sys/unix/Makefile.top \
+      '# Modified 2026-11-09 by the tay Nix channel: Guidebook build dropped from ALLDEP.  See pkgs/xnethack/default.nix.'
+    notice sys/unix/sysconf \
+      '# Modified 2026-11-09 by the tay Nix channel: dump logs and GDBPATH disabled, GREPPATH set to the Nix store, PANICTRACE_GDB=0.  See pkgs/xnethack/default.nix.'
+    # setup.sh keeps its shebang on line 1.
+    sed -i '1a # Modified 2026-11-09 by the tay Nix channel: shell interpreter paths point to the Nix store.  See pkgs/xnethack/default.nix.' \
+      sys/unix/setup.sh
 
     substituteInPlace include/config.h \
       --replace-fail '/* #define REPRODUCIBLE_BUILD */' '#define REPRODUCIBLE_BUILD'
