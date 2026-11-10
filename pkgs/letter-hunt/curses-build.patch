@@ -1,0 +1,186 @@
+Build Letter Hunt 002 as a curses-only program on GNU/Linux.
+
+The upstream linuxport Makefile builds the SDL port: it compiles gfx_sdl.cpp,
+queries sdl-config, and links SDL.  As BUILD.TXT describes, the curses port
+is selected with -DUSE_CURSES and linked with ncurses only; the SDL port and
+its alphabet*.bmp fonts are not built.  enummaker and premake no longer
+assume enummaker is on PATH, and both Makefiles honour CXX and CXXFLAGS.
+
+Read text.txt, rooms/piecelist.map, and wordlist/wordlist.txt from
+LETTERHUNT_DATADIR (".." by default, as upstream) so that the read-only data
+can live in the store while letterhunt.sav and hiscore.txt are still written
+relative to the working directory.
+
+Include <unistd.h> and <string.h> for usleep, sleep, unlink, memcpy,
+memmove, strcpy, strncpy, strcmp, and strdup, which current glibc and GCC no
+longer declare implicitly.
+
+diff -r a/src/gfx_curses.cpp b/src/gfx_curses.cpp
+--- a/src/gfx_curses.cpp
++++ b/src/gfx_curses.cpp
+@@ -51,12 +51,15 @@
+ using namespace std;
+ 
+ #include <assert.h>
++#include <string.h>
+ 
+ // Windows specific code
+ #ifdef WIN32
+ #include <windows.h>
+ #define usleep(x) Sleep((x)/1000)
+ #define sleep(x) Sleep((x))
++#else
++#include <unistd.h>
+ #endif
+ 
+ #include <curses.h>
+diff -r a/src/hiscore.cpp b/src/hiscore.cpp
+--- a/src/hiscore.cpp
++++ b/src/hiscore.cpp
+@@ -18,6 +18,7 @@
+ #include "text.h"
+ 
+ #include <fstream>
++#include <string.h>
+ #include <iostream>
+ using namespace std;
+ 
+diff -r a/src/linuxport/Makefile b/src/linuxport/Makefile
+--- a/src/linuxport/Makefile
++++ b/src/linuxport/Makefile
+@@ -1,9 +1,15 @@
++# Curses-only build.  The SDL port and its screen-captured alphabet*.bmp
++# fonts are not built or installed.
+ TARGET = letterhunt
+ 
++CXX = g++
++CXXFLAGS = -O3
++LETTERHUNT_DATADIR = ..
++ENUMMAKER = support/enummaker/enummaker
++
+ OFILES = linuxport.o \
+ 	 ../gfxengine.o \
+ 	 ../gfx_curses.o \
+-	 ../gfx_sdl.o \
+ 	 ../grammar.o \
+ 	 ../hiscore.o \
+ 	 ../item.o \
+@@ -21,12 +27,12 @@
+ 	 ../glbdef.o
+ 
+ .cpp.o:
+-	g++ -O3 `sdl-config --cflags` -c $< -o $@
++	$(CXX) $(CXXFLAGS) -DUSE_CURSES '-DLETTERHUNT_DATADIR="$(LETTERHUNT_DATADIR)"' -c $< -o $@
+ 
+ all: $(TARGET)
+ 
+ $(TARGET): $(OFILES)
+-	g++ -O3 -o $(TARGET) $(OFILES) `sdl-config --libs` -lcurses
++	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OFILES) -lncurses
+ 
+ clean:
+ 	rm -f *.o
+@@ -34,4 +40,4 @@
+ 	rm -f $(TARGET)
+ 
+ premake:
+-	cd .. ; ./support/enummaker/enummaker source.txt
++	cd .. && $(ENUMMAKER) source.txt
+diff -r a/src/main.cpp b/src/main.cpp
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -14,6 +14,9 @@
+ #include <stdio.h>
+ #include <assert.h>
+ #include <time.h>
++#ifndef WIN32
++#include <unistd.h>
++#endif
+ 
+ #include "gfxengine.h"
+ #include "glbdef.h"
+diff -r a/src/map.cpp b/src/map.cpp
+--- a/src/map.cpp
++++ b/src/map.cpp
+@@ -238,7 +238,7 @@
+ PIECEDICT::PIECEDICT()
+ {
+     char		buf[100];
+-    ifstream		is("../rooms/piecelist.map");
++    ifstream		is(LETTERHUNT_DATADIR "/rooms/piecelist.map");
+     u8			map[5][5];
+     int			x, y, i;
+ 
+diff -r a/src/support/enummaker/Makefile b/src/support/enummaker/Makefile
+--- a/src/support/enummaker/Makefile
++++ b/src/support/enummaker/Makefile
+@@ -1,15 +1,18 @@
+ TARGET = enummaker
+ 
++CXX = g++
++CXXFLAGS = -O3
++
+ OFILES = enummaker.o \
+ 	 StdAfx.o
+ 
+ .cpp.o:
+-	g++ -O3 -c $< -o $@
++	$(CXX) $(CXXFLAGS) -c $< -o $@
+ 
+ all: $(TARGET)
+ 
+ $(TARGET): $(OFILES)
+-	g++ -O3 -o $(TARGET) $(OFILES)
++	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OFILES)
+ 
+ clean:
+ 	rm -f *.o
+diff -r a/src/text.cpp b/src/text.cpp
+--- a/src/text.cpp
++++ b/src/text.cpp
+@@ -53,7 +53,7 @@
+ void
+ text_init()
+ {
+-    ifstream	is("../text.txt");
++    ifstream	is(LETTERHUNT_DATADIR "/text.txt");
+     char	line[500];
+     bool	hasline = false;
+     char	*text;
+diff -r a/src/text.h b/src/text.h
+--- a/src/text.h
++++ b/src/text.h
+@@ -13,6 +13,13 @@
+ #ifndef __text__
+ #define __text__
+ 
++// Directory holding the read-only text.txt, rooms/piecelist.map, and
++// wordlist/wordlist.txt.  Saved games and high scores are still written
++// relative to the working directory.
++#ifndef LETTERHUNT_DATADIR
++#define LETTERHUNT_DATADIR ".."
++#endif
++
+ void text_init();
+ void text_shutdown();
+ 
+diff -r a/src/wordbuf.cpp b/src/wordbuf.cpp
+--- a/src/wordbuf.cpp
++++ b/src/wordbuf.cpp
+@@ -13,6 +13,7 @@
+ #include "wordbuf.h"
+ #include "wordlist.h"
+ #include "panel.h"
++#include "text.h"
+ 
+ #include <stdio.h>
+ 
+@@ -67,7 +68,7 @@
+     {
+ 	ourWordList = new WORDLIST;
+ 	printf("Building wordlist, please wait...\n");
+-	ourWordList->appendFile("../wordlist/wordlist.txt");
++	ourWordList->appendFile(LETTERHUNT_DATADIR "/wordlist/wordlist.txt");
+ 	printf("Wordlist built!\n");
+     }
+ }
