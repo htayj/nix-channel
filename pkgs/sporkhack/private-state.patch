@@ -1,0 +1,130 @@
+SporkHack: separate immutable data from private writable Unix state.
+
+Modified by the tay Guix channel, 2026-10-06.  Distributed under the
+NetHack General Public License (upstream dat/license).  Retain ordinary
+save/restore, livelog, wish tracking, whereis and game-end dumps; route
+native writable prefixes and the two formerly absolute dgamelaunch paths
+to the launcher's user-owned playground.  Do not add a test mode or audio
+backend.  Original copyright and license headers remain intact.
+
+--- a/include/unixconf.h
++++ b/include/unixconf.h
+@@ -103,7 +103,8 @@
+  * If you want the static parts of your playground on a read-only file
+  * system, define VAR_PLAYGROUND to be where the variable parts are kept.
+  */
+-/* #define VAR_PLAYGROUND "/var/lib/games/nethack" */
++/* Modified by the tay Guix channel, 2026-10-06: private writable state. */
++#define VAR_PLAYGROUND nh_getenv("SPORKHACK_VAR_PLAYGROUND")
+ 
+ 
+ /*
+@@ -206,7 +207,8 @@
+ /* #define COMPRESS_OPTIONS "-q" */
+ #endif
+ 
+-#define FCMASK	0644	/* file creation mask */
++/* Modified by the tay Guix channel, 2026-10-06: private state permissions. */
++#define FCMASK	0600	/* file creation mask */
+ 
+ /* fcntl(2) is a POSIX-portable call for manipulating file descriptors.
+  * Comment out the USE_FCNTL if for some reason you have a strange
+--- a/include/config.h
++++ b/include/config.h
+@@ -156,11 +156,11 @@
+ #define NEWS "news"		/* the file containing the latest hack news */
+ #define PANICLOG "paniclog"	/* log of panic and impossible events */
+ #define DUMP_LOG				 /* turn on dumping */
+-#define DUMP_FN "/dgldir/userdata/%N/%n/sporkhack/dumplog/%t.sp.txt"
+-/*#define DUMP_FN "/tmp/%t.sp.txt"*/
++/* Modified by the tay Guix channel, 2026-10-06: resolved with LEVELPREFIX. */
++#define DUMP_FN "dumplog/%t.sp.txt"
+ #define DUMPMSGS 30
+ 
+-#define SERVER_ADMIN_MSG "admin_msg"
++/* Modified by the tay Guix channel, 2026-10-06: no server admin mailbox. */
+ 
+ /*
+  *	If COMPRESS is defined, it should contain the full path name of your
+@@ -403,7 +403,8 @@
+ 
+ /* Filename for dgamelaunch extra info field.
+    Can be left undefined for not writing extrainfo. */
+-#define EXTRAINFO_FN "/dgldir/extrainfo-sp/%n.extrainfo"
++/* Modified by the tay Guix channel, 2026-10-06: resolved with LEVELPREFIX. */
++#define EXTRAINFO_FN "%n.extrainfo"
+ 
+ /* #define SIMPLE_MAIL */ /* dgamelaunch simple mail */
+ 
+--- a/sys/unix/unixmain.c
++++ b/sys/unix/unixmain.c
+@@ -410,7 +410,13 @@
+ const char *dir;
+ boolean wr;
+ {
+-	if (dir					/* User specified directory? */
++/* Modified by the tay Guix channel, 2026-10-06: honor private state even
++ * when an explicit immutable data directory was supplied by the launcher. */
++# ifdef VAR_PLAYGROUND
++	if (!VAR_PLAYGROUND || !*VAR_PLAYGROUND)
++	    error("Use the sporkhack launcher to select private writable state.");
++# endif
++	if (dir && !VAR_PLAYGROUND		/* User specified directory? */
+ # ifdef HACKDIR
+ 	       && strcmp(dir, HACKDIR)		/* and not the default? */
+ # endif
+--- a/src/end.c
++++ b/src/end.c
+@@ -163,9 +163,11 @@
+ dump_init ()
+ {
+   if (dump_fn[0]) {
+-    mode_t dumpmode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
++    /* Modified by the tay Guix channel, 2026-10-06: private native dump. */
++    mode_t dumpmode = S_IRUSR | S_IWUSR;
+     char new_dump_fn[512];
+-    Sprintf(new_dump_fn, "%s", dump_format_str(dump_fn));
++    Sprintf(new_dump_fn, "%s",
++            fqname(dump_format_str(dump_fn), LEVELPREFIX, 0));
+     dump_fp = fopen (new_dump_fn, "w");
+     if (dump_fp) {
+       chmod(new_dump_fn, dumpmode);
+@@ -1652,12 +1654,14 @@
+ {
+ #ifdef EXTRAINFO_FN
+     FILE *extrai = (FILE *)0;
++    /* Modified by the tay Guix channel, 2026-10-06: private native info. */
+ #ifdef UNIX
+-    mode_t eimode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
++    mode_t eimode = S_IRUSR | S_IWUSR;
+ #endif
+     char new_fn[512];
+ 
+-    Sprintf(new_fn, "%s", dump_format_str(EXTRAINFO_FN));
++    Sprintf(new_fn, "%s",
++            fqname(dump_format_str(EXTRAINFO_FN), LEVELPREFIX, 0));
+ 
+     extrai = fopen(new_fn, "w");
+     if (!extrai) {
+--- a/src/files.c
++++ b/src/files.c
+@@ -668,7 +668,8 @@
+ 	FILE* fp;
+ 	char whereis_file[255];
+ 	char whereis_work[255];
+-        mode_t whereis_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
++        /* Modified by the tay Guix channel, 2026-10-06: private whereis. */
++        mode_t whereis_mode = S_IRUSR | S_IWUSR;
+ 
+ 
+ #ifdef WIN32
+@@ -699,7 +700,8 @@
+ 	FILE* fp;
+ 	char whereis_file[255];
+ 	char whereis_work[255];
+-        mode_t whereis_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
++        /* Modified by the tay Guix channel, 2026-10-06: private whereis. */
++        mode_t whereis_mode = S_IRUSR | S_IWUSR;
+ #if defined (WIN32)
+ 	Sprintf(whereis_file,"%s-%s.whereis",get_username(0),plname);
+ #else
