@@ -1,0 +1,41 @@
+Provenance: htayj Guix channel, guix/tay/packages/patches/gearhead2-xdg-config.patch at commit
+2714823bc335113bedec7ec2c06c732b300c0b22, copied unmodified below this header.
+License: LGPL-2.1-or-later, as the GearHead2 sources it modifies.
+Applied by pkgs/gearhead2/default.nix after CRLF normalization, -p1 --fuzz=0.
+
+Separate the configuration file from GearHead2's positional state directory.
+
+The ordinary launcher supplies an absolute writable state directory while
+running from immutable game data.  Keep save and report paths rooted in that
+positional directory, but read and write gearhead2.cfg in the XDG config tree.
+Create the config parents before the UI writes its first configuration file.
+The optional mission-giver diagnostic report must also stay in writable state.
+
+--- a/gears.pp
++++ b/gears.pp
+@@ -1497,6 +1497,7 @@
+ 	{ Make sure that the default save directory exists. If not, }
+ 	{ create it. }
+ begin
++	ForceDirectories( ExtractFileDir( Config_File ) );
+ 	if not DirectoryExists( Config_Directory ) then begin
+ 		MkDir( Config_Directory );
+ 	end;
+@@ -1529,1 +1530,8 @@
+-	Config_File := Config_Directory + 'gearhead2.cfg';
++	{ The positional directory remains the save and report directory. }
++	{ Modified for Guix on 2026-10-03: separate XDG configuration. }
++	Config_File := GetEnvironmentVariable( 'XDG_CONFIG_HOME' );
++	if Config_File = '' then begin
++		Config_File := IncludeTrailingPathDelimiter( GetUserDir() ) + '.config';
++	end;
++	Config_File := IncludeTrailingPathDelimiter( Config_File ) + 'gearhead2'
++		+ OS_Dir_Separator + 'gearhead2.cfg';
+--- a/pcaction.pp
++++ b/pcaction.pp
+@@ -2830,3 +2830,4 @@
+ 	{ Write the results to file, and dispose of the list. }
++	{ Modified for Guix on 2026-10-03: write this report in state. }
+-	SaveStringList( 'out_mgtest.txt' , Results );
++	SaveStringList( Config_Directory + 'out_mgtest.txt' , Results );
+ 	DisposeSAtt( Results );

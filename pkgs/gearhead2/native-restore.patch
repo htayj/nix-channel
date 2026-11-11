@@ -1,0 +1,170 @@
+Provenance: htayj Guix channel, guix/tay/packages/patches/gearhead2-native-restore.patch at commit
+2714823bc335113bedec7ec2c06c732b300c0b22, copied unmodified below this header.
+License: LGPL-2.1-or-later, as the GearHead2 sources it modifies.
+Applied by pkgs/gearhead2/default.nix after CRLF normalization, -p1 --fuzz=0.
+
+Preserve the paused player turn and every serialized string attribute on restore.
+
+A clock-mode campaign saved from player input is paused midway through CheckMeks.
+Resume that input before advancing time, without replaying previous actors,
+movement or the already-consumed confusion decision.  Deployment autosaves
+have no control mode yet and must still receive ordinary initialization.
+
+The compact gear reader must preserve empty and duplicate serialized string
+attributes, rather than interpreting them as mutation/deletion commands.
+
+--- a/arenaplay.pp
++++ b/arenaplay.pp
+@@ -29,7 +29,7 @@
+ Const
+ 	SATT_Artifact = 'ARTIFACT';
+ 
+-Procedure CombatMain( Camp: CampaignPtr );
++Procedure CombatMain( Camp: CampaignPtr; ResumeAt: GearPtr );
+ Function ScenePlayer( Camp: CampaignPtr ; Scene: GearPtr; var PCForces: GearPtr ): Integer;
+ 
+ implementation
+@@ -199,7 +199,7 @@
+ 	end;
+ end;
+ 
+-Procedure CheckMeks( Camp: CampaignPtr );
++Procedure CheckMeks( Camp: CampaignPtr; ResumeAt: GearPtr );
+ 	{ Check through all the meks in this scenario. If it's time }
+ 	{ for one to move according to its ETA, call the movement }
+ 	{ procedure. }
+@@ -209,7 +209,9 @@
+ 	PCMoved,PCActed: Boolean;
+ 	PC: GearPtr;
+ begin
+-	M := Camp^.GB^.meks;
++	{ Modified for Guix on 2026-10-03: continue a paused input turn. }
++	if ResumeAt <> Nil then M := ResumeAt
++	else M := Camp^.GB^.meks;
+ 	PCMoved := False;
+ 	PCActed := False;
+ 	PC := Nil;
+@@ -222,7 +224,7 @@
+ 
+ 		if IsMasterGear( M ) then begin
+ 			{ Check for actions in progress. }
+-			if NotDestroyed( M ) and OnTheMap( Camp^.GB , M ) then begin
++			if ( M <> ResumeAt ) and NotDestroyed( M ) and OnTheMap( Camp^.GB , M ) then begin
+ 				ETA := NAttValue( M^.NA , NAG_Action , NAS_MoveETA );
+ 				if ETA <= Camp^.GB^.ComTime then begin
+ 					ProcessMovement( Camp^.GB , M );
+@@ -237,7 +239,10 @@
+ 			if GearActive( M ) and OnTheMap( Camp^.GB , M ) then begin
+ 				ETA := NAttValue( M^.NA , NAG_Action , NAS_CallTime );
+ 				if ETA <= Camp^.GB^.ComTime then begin
+-					GetMekInput( M , Camp , False );
++					if M = ResumeAt then begin
++						GetPlayerInput( M , Camp );
++					end else GetMekInput( M , Camp , False );
++					ResumeAt := Nil;
+ 					if ( NAttValue( M^.NA , NAG_Location , NAS_Team ) = NAV_DefPlayerTeam ) then PCActed := True;
+ 				end else if ( NAttValue( M^.NA , NAG_Location , NAS_Team ) = NAV_DefPlayerTeam ) and ( ETA = ( Camp^.GB^.ComTime + 1 ) ) then begin
+ 					{ We're going to update the display next second; don't bother doing it now. }
+@@ -316,7 +321,7 @@
+ 
+ 
+ 
+-Procedure CombatMain( Camp: CampaignPtr );
++Procedure CombatMain( Camp: CampaignPtr; ResumeAt: GearPtr );
+ 	{ This is the main meat-and-potatoes combat procedure. }
+ 	{ Actually, it's pretty simple. All the difficult work is }
+ 	{ done by the procedures it calls. }
+@@ -346,6 +351,12 @@
+ 		FX_Desc   := '';
+ 	end;
+ 
++	{ Finish the interrupted actor pass before starting the next tick. }
++	if ResumeAt <> Nil then begin
++		CheckMeks( Camp , ResumeAt );
++		ResumeAt := Nil;
++	end;
++
+ 	{Start main combat loop here.}
+ 	{Keep going until we're told to quit.}
+ 	while KeepPlayingSC( Camp^.GB ) and ( CurrentControlMode( Camp^.GB ) = NAV_ClockMode ) do begin
+@@ -368,7 +379,7 @@
+ 
+ 		HandleTriggers( Camp^.GB );
+ 
+-		CheckMeks( Camp );
++		CheckMeks( Camp , Nil );
+ 
+ 		if Screen_Needs_Redraw and Thorough_Redraw then begin
+ 			CombatDisplay( Camp^.GB );
+@@ -1171,7 +1182,24 @@
+ var
+ 	N: Integer;
+ 	T: String;
+-begin
++	Resuming: Boolean;
++	ResumeAt,M: GearPtr;
++begin
++	Resuming := ( Camp^.GB <> Nil ) and
++		( CurrentControlMode( Camp^.GB ) <> 0 );
++	ResumeAt := Nil;
++	{ Clock-mode saves pause inside player input, not at a tick boundary. }
++	{ The first due player actor is the unfinished CheckMeks entry. }
++	if Resuming and ( CurrentControlMode( Camp^.GB ) = NAV_ClockMode ) then begin
++		M := Camp^.GB^.Meks;
++		while ( M <> Nil ) and ( ResumeAt = Nil ) do begin
++			if IsMasterGear( M ) and GearActive( M ) and OnTheMap( Camp^.GB , M ) and
++				( NAttValue( M^.NA , NAG_Location , NAS_Team ) = NAV_DefPlayerTeam ) and
++				( NAttValue( M^.NA , NAG_Action , NAS_CallTime ) <= Camp^.GB^.ComTime )
++			then ResumeAt := M;
++			M := M^.Next;
++		end;
++	end;
+ 	DeployJJang( Camp , Scene , PCForces );
+ 
+ 	{ Once everything is deployed, save the campaign. }
+@@ -1201,9 +1229,12 @@
+ 	Camp^.GB^.Camp := Camp;
+ 
+ 	{ Set the STARTGAME trigger, and update all props. }
+-	SetTrigger( Camp^.GB , TRIGGER_StartGame );
+-	T := 'UPDATE';
+-	CheckTriggerAlongPath( T , Camp^.GB , Camp^.GB^.Meks , True );
++	{ Modified for Guix on 2026-10-03: do not restart a saved scene. }
++	if not Resuming then begin
++		SetTrigger( Camp^.GB , TRIGGER_StartGame );
++		T := 'UPDATE';
++		CheckTriggerAlongPath( T , Camp^.GB , Camp^.GB^.Meks , True );
++	end;
+ 
+ 	{ Add some random monsters, if appropriate. }
+ 	RestockRandomMonsters( Camp^.GB );
+@@ -1220,7 +1251,8 @@
+ 	{ Now that everything is set, keep playing until we get the signal to quit. }
+ 	Repeat
+ 		if CurrentControlMode( Camp^.GB ) = NAV_ClockMode then begin
+-			CombatMain( Camp );
++			CombatMain( Camp , ResumeAt );
++			ResumeAt := Nil;
+ 		end else begin
+ 			TacticsMain( Camp );
+ 		end;
+--- a/gearutil.pp
++++ b/gearutil.pp
+@@ -1973,7 +1973,8 @@
+ 
+ 			{ If this is a valid string attribute, file it. }
+ 			if Pos('<',TheLine) > 0 then begin
+-				SetSAtt( it , TheLine );
++				{ Modified for Guix on 2026-10-03: restore raw saved attributes. }
++				StoreSAtt( it , TheLine );
+ 			end;
+ 		until ( Pos('<',TheLine) = 0 ) or EoF( F );
+ 
+@@ -2045,6 +2046,7 @@
+ 				ReadNumericAttributes( Part^.NA );
+ 
+ 				{ Read String Attributes }
++				if Part^.SA <> Nil then DisposeSAtt( Part^.SA );
+ 				ReadStringAttributes( Part^.SA );
+ 
+ 				{ Read InvComs }
