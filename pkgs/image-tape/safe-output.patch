@@ -1,0 +1,252 @@
+Provenance: copied unchanged for the tay Nix channel on 2026-11-11 from the tay
+Guix channel patch guix/tay/packages/patches/image-tape-safe-output.patch
+(htayj, guix-channel commit 21681af).  It modifies Expat-licensed upstream
+files and is distributed under the same Expat terms as image-tape.
+
+Description: Write image files safely and report output failures.
+Upstream-status: Inappropriate [downstream packaging hardening]
+---
+diff --git a/defs.h b/defs.h
+index 52ed194..277ad7f 100644
+--- a/defs.h
++++ b/defs.h
+@@ -24,9 +24,8 @@ extern const char *tape_drive (int fd);
+ extern int read_record (int fd, void *buffer, size_t n);
+
+ extern int open_image (const char *file);
+-extern void write_record (int fd, void *buffer, size_t n);
+-extern void write_mark (int fd);
+-extern void write_eot (int fd);
+-extern void write_eom (int fd);
+-extern void write_error (int fd, unsigned error);
+-
++extern int write_record (int fd, const void *buffer, size_t n);
++extern int write_mark (int fd);
++extern int write_eot (int fd);
++extern int write_eom (int fd);
++extern int write_error (int fd, unsigned error);
+diff --git a/image.c b/image.c
+index 8377c5f..377ae9d 100644
+--- a/image.c
++++ b/image.c
+@@ -34,7 +34,37 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
+
+ static int marks = 0;
+
+-static void
++static int
++write_all (int fd, const void *buffer, size_t n)
++{
++  const unsigned char *p = buffer;
++
++  while (n > 0)
++    {
++      ssize_t m = write (fd, p, n);
++
++      if (m == -1)
++        {
++          if (errno == EINTR)
++            continue;
++          fprintf (stderr, "Write error: %s\n", strerror (errno));
++          return -1;
++        }
++      if (m == 0)
++        {
++          errno = EIO;
++          fprintf (stderr, "Write error: %s\n", strerror (errno));
++          return -1;
++        }
++
++      p += m;
++      n -= m;
++    }
++
++  return 0;
++}
++
++static int
+ write_reclen (int fd, size_t n)
+ {
+   unsigned char size[4];
+@@ -44,53 +74,51 @@ write_reclen (int fd, size_t n)
+   size[2] = (n >> 16) & 0377;
+   size[3] = (n >> 24) & 0377;
+
+-  n = write (fd, size, 4);
+-  if (n == -1)
+-    fprintf (stderr, "Write error: %s\n", strerror (errno));
++  return write_all (fd, size, sizeof size);
+ }
+
+-void
++int
+ write_mark (int fd)
+ {
+   marks++;
+-  write_reclen (fd, RECORD_MARK);
++  return write_reclen (fd, RECORD_MARK);
+ }
+
+-void
+-write_record (int fd, void *buffer, size_t n)
++int
++write_record (int fd, const void *buffer, size_t n)
+ {
+-  int m;
+   n &= RECORD_LMASK;
+   if (n == 0)
+     {
+       fprintf (stderr, "Can't write empty record.\n");
+-      return;
++      return -1;
+     }
+   marks = 0;
+-  write_reclen (fd, n);
+-  m = write (fd, buffer, n);
+-  if (m == -1)
+-    fprintf (stderr, "Write error: %s\n", strerror (errno));
+-  write_reclen (fd, n);
++  if (write_reclen (fd, n) == -1
++      || write_all (fd, buffer, n) == -1)
++    return -1;
++  return write_reclen (fd, n);
+ }
+
+-void
++int
+ write_eot (int fd)
+ {
+   int i;
+   for (i = marks; i < 2; i++)
+-    write_mark (fd);
++    if (write_mark (fd) == -1)
++      return -1;
++  return 0;
+ }
+
+-void
++int
+ write_eom (int fd)
+ {
+-  write_reclen (fd, RECORD_EOM);
++  return write_reclen (fd, RECORD_EOM);
+ }
+
+-void
++int
+ write_error (int fd, unsigned error)
+ {
+   error &= RECORD_EMASK;
+-  write_reclen (fd, error | RECORD_ERR);
++  return write_reclen (fd, error | RECORD_ERR);
+ }
+diff --git a/main.c b/main.c
+index 9a51ed0..6fa20c8 100644
+--- a/main.c
++++ b/main.c
+@@ -33,7 +33,7 @@ static unsigned char record[SIZE];
+
+ static int errors = 0;
+
+-static void
++static int
+ copy_record (int fd)
+ {
+   int n;
+@@ -43,38 +43,47 @@ copy_record (int fd)
+       if (errors == 20)
+         {
+           fprintf (stderr, "Guessing physical end of tape.\n");
+-          write_eom (1);
+-          exit (0);
++          return write_eom (1) == -1 ? -1 : 1;
+         }
+       else
+         {
+           fprintf (stderr, "Read error: %s\n", strerror (errno));
+-          write_error (1, errno);
+           errors++;
++          return write_error (1, errno);
+         }
+     }
+   else if (n == 0)
+     {
+       fprintf (stderr, "Tape mark.\n");
+       errors = 0;
+-      write_mark (1);
++      return write_mark (1);
+     }
+   else
+     {
+       fprintf (stderr, "Record: %d frames.\n", n);
+       errors = 0;
+-      write_record (1, record, n);
++      return write_record (1, record, n);
+     }
+ }
+
+-static void
++static int
+ readtape (const char *device)
+ {
+-  int fd;
++  int fd, status;
+   fd = open_tape (device);
+   fprintf (stderr, "Tape drive: %s\n", tape_drive (fd));
+   for (;;)
+-    copy_record (fd);
++    {
++      status = copy_record (fd);
++      if (status != 0)
++        break;
++    }
++  if (close (fd) == -1)
++    {
++      fprintf (stderr, "Couldn't close tape device: %s\n", strerror (errno));
++      return -1;
++    }
++  return status == 1 ? 0 : -1;
+ }
+
+ static void
+@@ -87,14 +96,36 @@ usage (const char *name)
+ int
+ main (int argc, char **argv)
+ {
++  int fd, status;
++
+   if (argc < 2)
+     usage (argv[0]);
+   if (argc == 3)
+     {
+-      close (1);
+-      open (argv[2], O_WRONLY);
++      fd = open (argv[2], O_WRONLY | O_CREAT | O_TRUNC, 0666);
++      if (fd == -1)
++        {
++          fprintf (stderr, "Couldn't open %s: %s\n", argv[2], strerror (errno));
++          return 1;
++        }
++      if (dup2 (fd, STDOUT_FILENO) == -1)
++        {
++          fprintf (stderr, "Couldn't redirect output: %s\n", strerror (errno));
++          close (fd);
++          return 1;
++        }
++      if (fd != STDOUT_FILENO && close (fd) == -1)
++        {
++          fprintf (stderr, "Couldn't close output file: %s\n", strerror (errno));
++          return 1;
++        }
+     }
+
+-  readtape (argv[1]);
+-  return 0;
++  status = readtape (argv[1]);
++  if (argc == 3 && close (STDOUT_FILENO) == -1)
++    {
++      fprintf (stderr, "Couldn't close output file: %s\n", strerror (errno));
++      return 1;
++    }
++  return status == 0 ? 0 : 1;
+ }
