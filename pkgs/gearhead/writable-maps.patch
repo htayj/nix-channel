@@ -1,0 +1,47 @@
+Source: htayj Guix channel, guix/tay/packages/patches/gearhead-writable-maps.patch
+at commit 2714823bc335113bedec7ec2c06c732b300c0b22.  Patch body below is
+byte-identical.  It modifies GearHead: Arena sources and is distributed
+under the same LGPL-2.1-or-later terms (see license.txt in the source).
+
+GearHead Arena: keep map-editor output in the native configuration directory.
+
+Campaign data stays immutable.  Newly edited maps are saved next to gharena.cfg;
+the load menu includes both installed maps and the user's maps, preferring the
+user's copy when names coincide.  No synthetic gameplay or smoke entry point.
+
+--- a/mapedit.pp
++++ b/mapedit.pp
+@@ -29,7 +29,7 @@
+ {$IFDEF SDLMODE}
+ uses gears,locale,ui4gh,congfx,sdlinfo,sdlmap,sdlmenus;
+ {$ELSE}
+-uses gears,locale,ui4gh,congfx,coninfo,conmap,conmenus,context;
++uses SysUtils,gears,locale,ui4gh,congfx,coninfo,conmap,conmenus,context;
+ {$ENDIF}
+ 
+ Procedure SaveMap( GB: GameBoardPtr );
+@@ -46,7 +46,7 @@
+ 		end;
+ 	end;
+ 	if FName <> '' then begin
+-		Assign( F , Series_Directory + FName );
++		Assign( F , Config_Directory + ExtractFileName( FName ) );
+ 		Rewrite( F );
+ 		WriteMap( GB^.Map , F );
+ 		Close( F );
+@@ -69,10 +69,14 @@
+ begin
+ 	RPM := CreateRPGMenu( MenuItem , MenuSelect , ZONE_Menu );
+ 	BuildFileMenu( RPM , Series_Directory + '*MAP_*.txt' );
++	BuildFileMenu( RPM , Config_Directory + '*MAP_*.txt' );
+ 	FName := SelectFile( RPM );
+ 	DisposeRPGMenu( RPM );
+ 	if FName <> '' then begin
+-		Assign( F , Series_Directory + FName );
++		if FileExists( Config_Directory + FName ) then
++			Assign( F , Config_Directory + FName )
++		else
++			Assign( F , Series_Directory + FName );
+ 		Reset( F );
+ 		GB^.Map := ReadMap( F );
+ 		Close( F );

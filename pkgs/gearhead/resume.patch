@@ -1,0 +1,168 @@
+Source: htayj Guix channel, guix/tay/packages/patches/gearhead-resume.patch
+at commit 2714823bc335113bedec7ec2c06c732b300c0b22.  Patch body below is
+byte-identical.  It modifies GearHead: Arena sources and is distributed
+under the same LGPL-2.1-or-later terms (see license.txt in the source).
+
+GearHead Arena: resume an initialized combat scene at its saved player input.
+
+A live campaign save is written inside GetPlayerInput, after movement and the
+confusion decision for that actor.  Record completed combat scene-entry setup
+as an ordinary serialized scene numeric attribute.  Reset it only on a fresh
+ScenePlayer deployment; restored live boards retain it.  On resume, rebuild
+only derived shadows and displays, avoid repeating START/UPDATE/restocking,
+and continue the interrupted actor pass before advancing the saved clock.
+TacticsMain and TacticsTurn retain their existing behavior; this repair is
+scoped to the ordinary CombatMain loop.  Legacy and startup saves without the
+marker keep the original initialization path.  No save grammar or configuration
+default changes are required.
+
+Compact saves contain the complete string-attribute list, not design overrides.
+Discard InitGear's default strings before loading, and store saved strings
+verbatim, including empty values, just as WriteCGears writes them.
+
+Upstream-Status: Not submitted [downstream native campaign resume fix]
+
+--- a/arenaplay.pp
++++ b/arenaplay.pp
+@@ -115,7 +115,7 @@
+ 	end;
+ end;
+ 
+-Procedure CheckMeks( Camp: CampaignPtr );
++Procedure CheckMeks( Camp: CampaignPtr; ResumeInput: Boolean );
+ 	{ Check through all the meks in this scenario. If it's time }
+ 	{ for one to move according to its ETA, call the movement }
+ 	{ procedure. }
+@@ -125,8 +125,29 @@
+ begin
+ 	M := Camp^.GB^.meks;
+ 
++	{ A live save was made inside GetPlayerInput, after this actor's }
++	{ movement and confusion check. Earlier actors have already acted. }
++	if ResumeInput then begin
++		while M <> Nil do begin
++			if IsMasterGear( M ) and GearActive( M ) and OnTheMap( M ) then begin
++				if ( NAttValue( M^.NA , NAG_Location , NAS_Team ) = NAV_DefPlayerTeam ) and
++					( NAttValue( M^.NA , NAG_Action , NAS_CallTime ) <= Camp^.GB^.ComTime ) then Break;
++			end;
++			M := M^.Next;
++		end;
++	end;
++
+ 	while ( M <> Nil ) and KeepPlayingSC( Camp^.GB ) do begin
+ 		if IsMasterGear( M ) then begin
++			if ResumeInput then begin
++				{$IFDEF SDLMODE}
++				IndicateTile( Camp^.GB , M , True );
++				{$ENDIF}
++				GetPlayerInput( M , Camp );
++				ResumeInput := False;
++				M := M^.Next;
++				Continue;
++			end;
+ 			{ Check for actions in progress. }
+ 			if NotDestroyed( M ) and OnTheMap( M ) then begin
+ 				ETA := NAttValue( M^.NA , NAG_Action , NAS_MoveETA );
+@@ -204,10 +225,18 @@
+ 	{ won, and 0 if the game ended in a draw. }
+ var
+ 	T: String;
+-begin
+-	{ To start with, do a vision check for everyone, }
+-	{ then set up the display. }
+-	UniversalVisionCheck( Camp^.GB );
++	ResumeScene: Boolean;
++begin
++	ResumeScene := False;
++	if Camp^.GB <> Nil then begin
++		if Camp^.GB^.Scene <> Nil then
++			ResumeScene := NAttValue( Camp^.GB^.Scene^.NA , NAG_SceneData , NAS_SceneStarted ) <> 0;
++	end;
++
++	{ Restore only the derived shadow map. VisionCheck changes saved }
++	{ visibility attributes and must not run again before resumed input. }
++	if ResumeScene then UpdateShadowMap( Camp^.GB )
++	else UniversalVisionCheck( Camp^.GB );
+     {$IFNDEF SDLMODE}
+ 	GFCombatDisplay( Camp^.GB );
+     {$ENDIF}
+@@ -215,13 +244,21 @@
+ 	{ Get rid of the old AI pathfinding maps. }
+ 	ClearHotMaps;
+ 
+-	{ Set the STARTGAME trigger, and update all props. }
+-	SetTrigger( Camp^.GB , TRIGGER_StartGame );
+-	T := 'UPDATE';
+-	CheckTriggerAlongPath( T , Camp^.GB , Camp^.GB^.Meks , True );
+-
+-	{ Add some random monsters, if appropriate. }
+-	RestockRandomMonsters( Camp^.GB );
++	if not ResumeScene then begin
++		{ Set the STARTGAME trigger, and update all props. }
++		SetTrigger( Camp^.GB , TRIGGER_StartGame );
++		T := 'UPDATE';
++		CheckTriggerAlongPath( T , Camp^.GB , Camp^.GB^.Meks , True );
++
++		{ Add some random monsters, if appropriate. }
++		RestockRandomMonsters( Camp^.GB );
++		if Camp^.GB^.Scene <> Nil then
++			SetNAtt( Camp^.GB^.Scene^.NA , NAG_SceneData , NAS_SceneStarted , 1 );
++	end else begin
++		{ Finish the interrupted actor pass at the saved clock, before }
++		{ advancing time or handling the already-processed entry triggers. }
++		CheckMeks( Camp , True );
++	end;
+ 
+ 	{Start main combat loop here.}
+ 	{Keep going until there's only one side left.}
+@@ -239,7 +276,7 @@
+ 
+ 		HandleTriggers( Camp^.GB );
+ 
+-		CheckMeks( Camp );
++		CheckMeks( Camp , False );
+ 
+         {$IFNDEF SDLMODE}
+ 		UpdateCombatDisplay( Camp^.GB );
+@@ -887,6 +924,10 @@
+ var
+ 	N: Integer;
+ begin
++	{ Only a new deployment starts a new combat entry. A restored }
++	{ live board must retain its serialized initialization marker. }
++	if Camp^.GB = Nil then SetNAtt( Scene^.NA , NAG_SceneData , NAS_SceneStarted , 0 );
++
+ 	DeployJJang( Camp , Scene , PCForces );
+ 
+ 	{ Once everything is deployed, save the campaign. }
+--- a/gearutil.pp
++++ b/gearutil.pp
+@@ -1749,7 +1749,7 @@
+ 
+ 			{ If this is a valid string attribute, file it. }
+ 			if Pos('<',TheLine) > 0 then begin
+-				SetSAtt( it , TheLine );
++				StoreSAtt( it , TheLine );
+ 			end;
+ 		until ( Pos('<',TheLine) = 0 ) or EoF( F );
+ 
+@@ -1799,6 +1799,9 @@
+ 				{ Clear any numeric attributes that may }
+ 				{ have been set by InitGear. }
+ 				if Part^.NA <> Nil then DisposeNAtt( Part^.NA );
++				{ The saved strings are authoritative too, including empty }
++				{ values and attributes removed since design initialization. }
++				DisposeSAtt( Part^.SA );
+ 
+ 				{ Set SCALE to the stored value, since }
+ 				{ INITGEAR probably set it to parent scale. }
+--- a/locale.pp
++++ b/locale.pp
+@@ -111,6 +111,7 @@
+ 
+ 	NAG_SceneData = 17;	{ Data needed for scenes. }
+ 	NAS_TacticsTurnStart = 1;	{ ComTime at which tactics turn starts. }
++	NAS_SceneStarted = 2;	{ Combat scene-entry initialization is complete. }
+ 
+ 
+ 	AI_Type_Label: Array [0..NumAITypes] of String = (
