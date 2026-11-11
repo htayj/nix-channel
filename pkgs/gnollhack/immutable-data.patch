@@ -1,0 +1,32 @@
+Provenance: adapted for the tay Nix channel on 2026-11-11 from the tay Guix
+channel patch guix/tay/packages/patches/gnollhack-immutable-data.patch; only the
+dated NGPL 2(a) modification notice names this channel instead.
+
+GnollHack: retain immutable native data while using a private Unix playground.
+
+The upstream NOCWD_ASSUMPTIONS file-prefix machinery already distinguishes
+DATAPREFIX from writable state.  Select the compiled-in data directory for
+both DLB data and the HACKPREFIX symbols file before changing to the
+launcher-selected playground.  Leave user configuration and all native
+command-line options intact.
+
+--- a/sys/unix/unixmain.c
++++ b/sys/unix/unixmain.c
+@@ -1,3 +1,4 @@
++/* Modified by tay Nix channel, 2026-11-11: separate immutable game data from the private writable playground. */
+ /* GnollHack File Change Notice: This file has been changed from the original. Date of last change: 2024-08-11 */
+ 
+ /* GnollHack 3.6	unixmain.c	$NHDT-Date: 1432512788 2015/05/25 00:13:08 $  $NHDT-Branch: master $:$NHDT-Revision: 1.52 $ */
+@@ -499,6 +500,12 @@
+ static void
+ chdirx(const char *dir, boolean wr)
+ {
++#if defined(NOCWD_ASSUMPTIONS) && defined(HACKDIR)
++    /* Static data never follows the writable playground or -d override. */
++    fqn_prefix[DATAPREFIX] = HACKDIR "/";
++    fqn_prefix[HACKPREFIX] = fqn_prefix[DATAPREFIX];
++#endif
++
+     if (dir /* User specified directory? */
+ #ifdef HACKDIR
+         && strcmp(dir, HACKDIR) /* and not the default? */
