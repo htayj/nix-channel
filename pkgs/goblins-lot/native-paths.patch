@@ -1,0 +1,67 @@
+Goblins' Lot 497febb: prefix-local install, current Boost and Nixpkgs Python.
+
+- Fix the XDG_CONFIG_HOME directory name typo (goblinw-lot).
+- Install the fallback pixmap under the prefix instead of /usr/share/pixmaps.
+- Boost.System is header-only since Boost 1.69; drop the compiled component.
+- zlib is a dynamic stdlib extension in Nixpkgs Python, not a libpython
+  builtin, so do not register PyInit_zlib as an inittab module.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -32,7 +32,7 @@
+ SET(GOBLIN_CAMP_DATA_BASE_DIR "${CMAKE_INSTALL_PREFIX}/share" CACHE PATH "Base Data Dir Path")
+ SET(GOBLIN_CAMP_SHAREDIR "${GOBLIN_CAMP_DATA_BASE_DIR}/games/goblins-lot" CACHE PATH "Path to Goblins' Lot shared files")
+ 
+-find_package(Boost REQUIRED COMPONENTS system filesystem serialization iostreams)
++find_package(Boost REQUIRED COMPONENTS filesystem serialization iostreams)
+ find_package(Boost COMPONENTS python REQUIRED)
+ 
+ find_package(Boost COMPONENTS python3 REQUIRED)
+@@ -193,7 +193,6 @@
+   ${SDL2_LIBRARY}
+   ${SDL2_IMAGE_LIBRARY}
+   ${Python3_LIBRARIES}
+-  ${Boost_SYSTEM_LIBRARY}
+   ${Boost_FILESYSTEM_LIBRARY}
+   ${Boost_SERIALIZATION_LIBRARY}
+   ${Boost_IOSTREAMS_LIBRARY}
+--- a/game/CMakeLists.txt
++++ b/game/CMakeLists.txt
+@@ -15,7 +15,7 @@
+ 
+ # A fallback icon for Desktop Environments that ignores /usr/share/icons
+ # https://specifications.freedesktop.org/icon-theme-spec/icon-theme-spec-latest.html#directory_layout
+-INSTALL(FILES "goblin-camp-128x128.png" DESTINATION "/usr/share/pixmaps" RENAME "goblin-camp.png")
++INSTALL(FILES "goblin-camp-128x128.png" DESTINATION "${GOBLIN_CAMP_DATA_BASE_DIR}/pixmaps" RENAME "goblin-camp.png")
+ 
+ 
+ 
+--- a/game/src/platform/linux/DataImpl.cpp
++++ b/game/src/platform/linux/DataImpl.cpp
+@@ -32,7 +32,7 @@
+ 		// https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
+ 		if (getenv("XDG_CONFIG_HOME"))
+ 		{
+-			dir = fs::path(std::string(getenv("XDG_CONFIG_HOME")) + "/goblinw-lot");
++			dir = fs::path(std::string(getenv("XDG_CONFIG_HOME")) + "/goblins-lot");
+ 		} else
+ 		{
+ 			dir = fs::path(std::string(getenv("HOME")) + "/.config/goblins-lot");
+--- a/game/src/scripting/Engine.cpp
++++ b/game/src/scripting/Engine.cpp
+@@ -59,7 +59,6 @@
+ 	}
+ }
+ 
+-PyMODINIT_FUNC PyInit_zlib();
+ PyMODINIT_FUNC PyInit__functools();
+ PyMODINIT_FUNC PyInit__weakref();
+ PyMODINIT_FUNC PyInit_time();
+@@ -73,7 +72,6 @@
+ 		PyImport_AppendInittab((char*) "_weakref",  PyInit__weakref);
+ 		PyImport_AppendInittab((char*) "time",      PyInit_time);
+ 		PyImport_AppendInittab((char*) "_funtools", PyInit__functools);
+-		PyImport_AppendInittab((char*) "zlib",      PyInit_zlib);
+ 		ExposeAPI();
+ 
+ 		PyConfig py_config;
