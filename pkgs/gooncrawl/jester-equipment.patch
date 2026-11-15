@@ -1,0 +1,27 @@
+Restore the original Jester's intended starting equipment.
+
+In v2.0 job-data.h:343, adjacent C++ string literals accidentally combine
+"quarterstaff ego:chaos" and "robe" into one invalid item specification.
+Restore their missing comma so both original items are given.  At line 344,
+use the current parser spelling "atropa" for SPMSL_BLINDING: mapdef.cc's
+missile_brands table (4901-4931) and item-prop-enum.h (513-514) define this
+mapping, and item-name.cc (402-403) uses the same spelling.  Pies intentionally
+retain SPMSL_BLINDING (makeitem.cc:526-527,589-593); quantity remains four.
+
+This repairs actual gameplay, not just the diagnostic: give_job_equipment
+(jobs.cc:105-119) uses the same item_list parser as debug_jobdata (145-162).
+No tests, parser rules, item brands, or other equipment are changed.
+
+--- a/crawl-ref/source/job-data.h
++++ b/crawl-ref/source/job-data.h
+@@ -340,8 +340,8 @@
+     "Jr", "Jester",
+     1, 5, 6,
+     { SP_HUMAN, SP_GNOLL, SP_TENGU, SP_KOBOLD, SP_SPRIGGAN, SP_OCTOPODE, },
+-    { "quarterstaff ego:chaos" "robe", "cap", "book of Party Tricks", 
+-      "pie ego:blinding q:4"},
++    { "quarterstaff ego:chaos", "robe", "cap", "book of Party Tricks", 
++      "pie ego:atropa q:4"},
+     WCHOICE_NONE,
+     { { SK_DODGING, 2 }, { SK_STAVES, 1 }, { SK_STEALTH, 1 }, { SK_THROWING, 1 },
+       { SK_SPELLCASTING, 2 }, { SK_EVOCATIONS, 2 }, },

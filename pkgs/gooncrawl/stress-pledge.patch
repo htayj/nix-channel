@@ -1,0 +1,29 @@
+Select the ordinary unpledged game for unattended upstream stress tests.
+
+Gooncrawl's newgame.cc:649-668 requires a pledge selection for normal games;
+initfile.cc:290 defaults that option to "unknown" and therefore opens a menu.
+The inherited stress rc files specify species/background and start their Lua
+bots only after character creation, so fireworks stalls in choose_game before
+any gameplay.  Selecting "none" maps to PLEDGE_NONE (pledge.cc:37-40) and leaves
+normal gameplay unmodified.  Sprint already assigns PLEDGE_NONE explicitly
+(newgame.cc:670-673); the arena scenarios do not choose a normal character.
+
+Use the public early option so an explicit scenario rc can still override it:
+initfile.cc:1590-1600 applies extra_opts_first before reading the rc file.
+This default applies only to the upstream test runner, not installed launchers
+or user configuration.  All scenarios, seeds, assertions, timeouts and test
+exit handling are unchanged.  Do not quote the single-token pledge=none inside
+CRAWL: the runner deliberately expands that command using shell word splitting.
+
+--- a/crawl-ref/source/test/stress/run
++++ b/crawl-ref/source/test/stress/run
+@@ -1,7 +1,8 @@
+ #!/bin/sh
+ set -e
+ 
+-CRAWL=${CRAWL:-timeout 595 ./crawl -seed 1 -no-save -name test -wizard -no-throttle}
++# The bots require character creation to finish without an interactive pledge menu.
++CRAWL=${CRAWL:-timeout 595 ./crawl -seed 1 -no-save -name test -wizard -no-throttle -extra-opt-first pledge=none}
+ 
+ run_one()
+ {

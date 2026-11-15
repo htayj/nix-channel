@@ -1,0 +1,57 @@
+Load the original stress helpers through Crawl's supported Lua loader.
+
+CLua::init_lua deliberately does not open Lua's package library (clua.cc:
+735-763), so global require is absent.  It registers crawl_require at line
+826; that loader reports execution failures (1232-1250).  The production
+Dungeon Lua scripts already use crawl_require, e.g. dat/dlua/dungeon.lua:6-8
+and dat/dlua/debug.lua:6.
+
+The inherited stress rc files still call the removed global require in four
+places.  This leaves entomb/awaken setup inactive in the first two scenarios,
+and fireworks reports nil require/stress before its later targeting prompt.
+Use the supported loader at every affected call, restoring the original
+helper execution without enabling unrestricted Lua libraries, changing the
+helper code, suppressing errors, skipping scenarios, or changing timeouts.
+
+--- a/crawl-ref/source/test/stress/fireworks.rc
++++ b/crawl-ref/source/test/stress/fireworks.rc
+@@ -24,7 +24,7 @@
+ :     crawl.sendkeys("&" .. string.char(20) ..
+ :                    "debug.disable('confirmations')" .. eol ..
+ :                    "debug.disable('death')" .. eol ..
+-:                    "require('dlua/stress.lua')" .. eol ..
++:                    "crawl_require('dlua/stress.lua')" .. eol ..
+ :                    "stress.fill_level('floor')" .. eol ..
+ :                    "you.teleport_to(40, 33)" .. eol ..
+ :                    "dgn.create_monster(40, 40, 'statue hp:10000')" .. eol ..
+@@ -37,7 +37,7 @@
+ :     end
+ :   end
+ :   if (you.turns() % 7) == 1 then
+-:     crawl.call_dlua("require('dlua/stress.lua')" .. eol ..
++:     crawl.call_dlua("crawl_require('dlua/stress.lua')" .. eol ..
+ :                     "stress.boost_monster_hp()")
+ :     crawl.sendkeys("&corb" .. eol .. eol)
+ :   end
+--- a/crawl-ref/source/test/stress/woken_rest.rc
++++ b/crawl-ref/source/test/stress/woken_rest.rc
+@@ -18,7 +18,7 @@
+ :     crawl.enable_more(false)
+ :     crawl.set_sendkeys_errors(true)
+ :     crawl.process_keys("&Y" .. esc)
+-:     crawl.call_dlua("require('dlua/stress.lua');" ..
++:     crawl.call_dlua("crawl_require('dlua/stress.lua');" ..
+ :                     "stress.entomb();" ..
+ :                     "stress.awaken_level()")
+ :     crawl.sendkeys("5")
+--- a/crawl-ref/source/test/stress/unwoken_rest.rc
++++ b/crawl-ref/source/test/stress/unwoken_rest.rc
+@@ -17,7 +17,7 @@
+ :     crawl.enable_more(false)
+ :     crawl.set_sendkeys_errors(true)
+ :     crawl.process_keys("&Y" .. esc)
+-:     crawl.call_dlua("require('dlua/stress.lua');" ..
++:     crawl.call_dlua("crawl_require('dlua/stress.lua');" ..
+ :                     "stress.entomb()")
+ :     crawl.sendkeys("5")
+ :   elseif you.turns() < 1000 then

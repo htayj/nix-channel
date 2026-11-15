@@ -39,6 +39,7 @@
         bell-museum = pkgs.callPackage ./pkgs/bell-museum { };
         bloatcrawl2 = pkgs.callPackage ./pkgs/bloatcrawl2 { };
         gnollcrawl = pkgs.callPackage ./pkgs/gnollcrawl { };
+        gooncrawl = pkgs.callPackage ./pkgs/gooncrawl { };
         gnollhack = pkgs.callPackage ./pkgs/gnollhack { };
         blincolnlights = pkgs.callPackage ./pkgs/blincolnlights { };
         bootrogue = pkgs.callPackage ./pkgs/bootrogue { };
@@ -202,7 +203,7 @@
             overlays = [ self.overlays.default ];
           };
         in {
-            inherit (self.packages.${system}) acehack agduria aiwnios aiwnios-bytecode amstelvar apout aquarium-arena aquesttoofar atarist-font atlas-warriors atrogue autolith avanor axmud azurra-gtk-theme bcrawl bell-labs-rogue7 bell-museum blincolnlights bloatcrawl2 gnollcrawl gnollhack bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop city-of-the-condemned clojure-roguelike corerl cotd cracks-and-crevices crashrun cryptrover curseforge dec-fonts dhack diabaig dicom2mesh dnethack dynahack dragonslayer dungeon-monkey-unlimited dungeonminder durthang dwarftown emacs-chatgpt-el emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp encircled escape-from-lab-42 everything-is-fodder evilhack faangband farmingrl fiqhack for-roguelike freelarn
+            inherit (self.packages.${system}) acehack agduria aiwnios aiwnios-bytecode amstelvar apout aquarium-arena aquesttoofar atarist-font atlas-warriors atrogue autolith avanor axmud azurra-gtk-theme bcrawl bell-labs-rogue7 bell-museum blincolnlights bloatcrawl2 gnollcrawl gooncrawl gnollhack bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop city-of-the-condemned clojure-roguelike corerl cotd cracks-and-crevices crashrun cryptrover curseforge dec-fonts dhack diabaig dicom2mesh dnethack dynahack dragonslayer dungeon-monkey-unlimited dungeonminder durthang dwarftown emacs-chatgpt-el emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp encircled escape-from-lab-42 everything-is-fodder evilhack faangband farmingrl fiqhack for-roguelike freelarn
             gearhead gearhead2 genera-fonts-latin genera-fonts-symbols go-mud god-of-change godisc goblins-lot grippy-socks gruesome grunthack hack hackem hellcrawl hunger-games hydra-slayer image-tape itstar ivory-key kbredir kbtin kildclient kmuddy ks10-udis lbforth letter-hunt liveonce liquid lispy-rogue ludviglundgren-qbittorrent-cli lyntin manna-cadet martins-dungeon-bash mmapper modus mushtato narwharl nitrohack nlarn node-unrs-resolver notion-river nrl-text-to-phoneme obumbrata ocaml-irc-client ocaml-irc-client-unix ocaml-irc-client-lwt ocaml-irc-client-lwt-ssl pdp10-gcc pdp10-its-disassembler pdp10-suppty pdp10-xpl-pdp-10 pdp11 pdp6 plomrogue potato pycat qbcl raelives rapidbrogue rouge ruby-memoist savescummer secretpathway sbcl-cl-libheif sbcl-cl-libtiff sewer-massacre shadow-over-darkmoor shamogu six-two-one slashem splicehack-rewrite sporkhack srogue stoat-soup
             tapeutils tassh terminaldrome tetraworld the-smiths-hand trebuchet tui uc-explorer donk-messages-image vt05 wanderers wrogue xnethack you-can-datamosh-on-linux buzz-desktop openclaw-desktop rbw-vaultwarden m3shapes;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
