@@ -1,0 +1,46 @@
+Lispy Rogue 0.0.2 (Autumn Lisp Game Jam 2024)
+=============================================
+Canonical source: https://github.com/lockie/lispy-rogue
+Commit: b2249bf7fe05e4ae53468d0f8855fcf4f4057337
+
+Game Common Lisp source, lispy-rogue.asd and Resources/urizen-tileset.tsx
+(tile metadata written for the game): Copyright (c) 2024 Andrew Kravchuk,
+MIT License; see LICENSE.
+
+Resources/dungeon.ogg
+  "Dungeon Ambience" by yd, CC0 1.0 (public domain dedication).
+  https://opengameart.org/content/dungeon-ambience
+  SHA-256: 18da6d6c4492d744f5ebde5bb128a636770df4197d2d4a0b5e8d65df6e27f57b
+
+Resources/urizen-tileset.png
+  "Urizen 1Bit Tileset" by vurmux, CC0 1.0 (public domain dedication).
+  https://vurmux.itch.io/urizen-onebit-tileset
+  SHA-256: b8093319d17fe5032f3d5a9a206a365b8a64c1fa95f5fe3e215c4b12e3dbf9bf
+
+Resources/fantasque-sans-mono.ttf
+  Fantasque Sans Mono, Copyright (c) 2013-2017, Jany Belluz
+  (jany.belluz@hotmail.fr), SIL Open Font License 1.1.
+  https://github.com/belluzj/fantasque-sans
+  SHA-256: 88f574f228dde6889146e5b0574ddfac5f84aaa2bd475578346214eb4a2defac
+  Complete notice: Fantasque-OFL-1.1.txt
+
+Resources/inconsolata.ttf
+  Inconsolata, Copyright 2006 The Inconsolata Project Authors
+  (https://github.com/cyrealtype/Inconsolata), SIL Open Font License 1.1.
+  https://github.com/google/fonts/tree/main/ofl/inconsolata
+  SHA-256: ccd0bf1697854e35cae9fec9ba20be3b145a194657f9bfa8507c67dcde3a896f
+  Complete notice: Inconsolata-OFL-1.1.txt
+
+The fonts are redistributed unmodified, bundled with the game software, as
+permitted by OFL 1.1 section 2.
+
+Not installed: the upstream package/ directory (installer icon, AppImage,
+macOS and NSIS packaging, Quicklisp build script), the README cover art
+("Digital drawing images 1", CC-BY 3.0) and the Tango icons.  No prebuilt
+executables or bundled shared libraries are used: Allegro, the Allegro
+Nuklear bridge and every Common Lisp library are built from source by
+Nixpkgs and loaded from their own store paths.
+
+The game has no save files, no network features and no updater.  It reads
+an optional config.cfg next to Resources/ (inside the store, not shipped)
+and writes nothing.
