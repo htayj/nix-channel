@@ -1,0 +1,36 @@
+Source: htayj Guix channel, guix/tay/packages/patches/dungeonminder-source-portability.patch
+at commit 4280ec889d85f32e1ed404805650fe1a880f93b9.  Patch body below is
+byte-identical.  It modifies DungeonMinder.cpp and is distributed under the
+same terms as the game (Adam Gatt's notice, installed as license.txt).
+
+Use direct standard declarations and an immutable font path without changing
+DungeonMinder's historical libtcod API or game behavior.  The font macro is
+provided by the package build and names the unmodified upstream terminal.png.
+
+--- a/DungeonMinder.cpp
++++ b/DungeonMinder.cpp
+@@ -1,4 +1,6 @@
+ #include <string>
+ #include <iostream>
++#include <cstdio>
++#include <cstdlib>
+ #include "math.h"
+ #include "libtcod.hpp"
+@@ -207,6 +209,7 @@
+    messageType[MESSAGE_COUNT-1] = NORMAL_MESSAGE;
+ 
+    // Creates the console
++   TCODConsole::setCustomFont(DUNGEONMINDER_FONT,8,8,0);
+    TCODConsole::initRoot(80,60,"DungeonMinder",false);
+    TCODSystem::setFps(25);
+ 
+@@ -291,8 +294,7 @@
+                return cost;
+             }
+       };
+-      hero.path = new TCODPath::TCODPath(MAP_WIDTH, MAP_HEIGHT, new HeroPathCallback(), NULL, 0.0f);
+-      //hero.path = new TCODPath::TCODPath(mapModel, 0.0f);
++      hero.path = new TCODPath(MAP_WIDTH, MAP_HEIGHT, new HeroPathCallback(), NULL, 0.0f);
+       hero.pathstep = 0;
+       hero.dead = false;
+       hero.dest1x = -1;

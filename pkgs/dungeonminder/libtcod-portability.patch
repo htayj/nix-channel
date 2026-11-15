@@ -1,0 +1,228 @@
+Source: htayj Guix channel, guix/tay/packages/patches/dungeonminder-libtcod-portability.patch
+at commit 4280ec889d85f32e1ed404805650fe1a880f93b9.  Patch body below is
+byte-identical.  It modifies libtcod 1.4.0 sources and is distributed under
+the same BSD-3-Clause terms (see LIBTCOD-LICENSE.txt in the source).
+
+Keep DungeonMinder's exact libtcod 1.4.0 source (commit
+9ac2a3a526e7cefe8b7b330e37619bb1c4b6fb96) compatible with current
+libpng and pointer-sized TCOD_list slots on 64-bit systems.
+
+Use libpng's public channel accessor and NULL instead of retired aliases.
+The pathfinding heap must traverse and swap void * slots, not uint32 words:
+retain uint32 grid offsets, converting them through uintptr_t at the slot
+boundary.  Likewise, convert path directions through intptr_t.  Preserve
+the original pathfinding algorithm and allocations; no persistence API or
+unrelated source is changed.
+Declare the SDL glyph mapper's int parameters explicitly, matching its
+existing internal header prototype rather than relying on implicit int.
+
+--- a/src/sys_sdl_c.c
++++ b/src/sys_sdl_c.c
+@@ -152,7 +152,7 @@
+ #endif
+ 
+-void TCOD_sys_map_ascii_to_font(asciiCode, fontCharX, fontCharY) {
++void TCOD_sys_map_ascii_to_font(int asciiCode, int fontCharX, int fontCharY) {
+ 	if ( asciiCode > 0 && asciiCode < TCOD_MAX_FONT_CHARS )
+ 		ascii_to_tcod[asciiCode] = fontCharX + fontCharY * fontNbCharHoriz;
+ }
+ 
+--- a/src/path_c.c
++++ b/src/path_c.c
+@@ -27,6 +27,7 @@
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
++#include <stdint.h>
+ #include <math.h>
+ #include "libtcod.h"
+ #include "libtcod_int.h"
+@@ -61,26 +62,26 @@
+ 	int cur=0;
+ 	int end = TCOD_list_size(heap)-1;
+ 	int child=1;
+-	uint32 *array=(uint32 *)TCOD_list_begin(heap);
++	void **array=TCOD_list_begin(heap);
+ 	while ( child <= end ) {
+-		uint32 off_cur=array[cur];
++		uint32 off_cur=(uint32)(uintptr_t)array[cur];
+ 		float cur_dist=path->heur[off_cur];
+-		uint32 off_child=array[child];
++		uint32 off_child=(uint32)(uintptr_t)array[child];
+ 		float child_dist=path->heur[off_child];
+ 		if ( child < end ) {
+ 			/* get the min between child and child+1 */
+-			uint32 off_child2=array[child+1];
++			uint32 off_child2=(uint32)(uintptr_t)array[child+1];
+ 			float child2_dist=path->heur[off_child2];
+ 			if ( child_dist > child2_dist ) {
+ 				child++;
+ 				child_dist=child2_dist;
+ 			}
+ 		}
+ 		if ( child_dist < cur_dist ) {
+ 			/* get down one level */
+-			uint32 tmp = array[child];
++			void *tmp = array[child];
+ 			array[child]=array[cur];
+ 			array[cur]=tmp;
+ 			cur=child;
+ 		} else return;
+ 		child=cur*2+1;
+@@ -92,17 +93,17 @@
+ 	int end = TCOD_list_size(heap)-1;
+ 	int child=end;
+-	uint32 *array=(uint32 *)TCOD_list_begin(heap);
++	void **array=TCOD_list_begin(heap);
+ 	while ( child > 0 ) {
+-		uint32 off_child=array[child];
++		uint32 off_child=(uint32)(uintptr_t)array[child];
+ 		float child_dist=path->heur[off_child];
+ 		int parent = (child-1)/2;
+-		uint32 off_parent=array[parent];
++		uint32 off_parent=(uint32)(uintptr_t)array[parent];
+ 		float parent_dist=path->heur[off_parent];
+ 		if ( parent_dist > child_dist ) {
+ 			/* get up one level */
+-			uint32 tmp = array[child];
++			void *tmp = array[child];
+ 			array[child]=array[parent];
+ 			array[parent]=tmp;
+ 			child=parent;
+ 		} else return;
+ 	}
+@@ -112,7 +113,7 @@
+ static void heap_add(TCOD_path_data_t *path, TCOD_list_t heap, int x, int y) {
+ 	/* append the new value to the end of the heap */
+ 	uint32 off=x+y*path->w;
+-	TCOD_list_push(heap,(void *)off);
++	TCOD_list_push(heap,(void *)(uintptr_t)off);
+ 	/* bubble the value up to its real position */
+ 	heap_sift_up(path,heap);
+ }
+@@ -121,8 +122,8 @@
+ static uint32 heap_get(TCOD_path_data_t *path,TCOD_list_t heap) {
+ 	/* return the first value of the heap (minimum score) */
+-	uint32 *array=(uint32 *)TCOD_list_begin(heap);
++	void **array=TCOD_list_begin(heap);
+ 	int end=TCOD_list_size(heap)-1;
+-	uint32 off=array[0];
++	uint32 off=(uint32)(uintptr_t)array[0];
+ 	/* take the last element and put it at first position (heap root) */
+ 	array[0] = array[end];
+ 	TCOD_list_pop(heap);
+@@ -135,16 +136,16 @@
+ static void heap_reorder(TCOD_path_data_t *path, uint32 offset) {
+-	uint32 *array=(uint32 *)TCOD_list_begin(path->heap);
+-	uint32 *end=(uint32 *)TCOD_list_end(path->heap);
+-	uint32 *cur=array;
++	void **array=TCOD_list_begin(path->heap);
++	void **end=TCOD_list_end(path->heap);
++	void **cur=array;
+ 	/* find the node corresponding to offset ... SLOW !! */
+ 	while (cur != end) {
+-		if (*cur == offset ) break;
++		if ((uintptr_t)*cur == offset ) break;
+ 		cur++;
+ 	}
+ 	if ( cur == end ) return;
+ 	/* remove it... SLOW !! */
+-	TCOD_list_remove_iterator(path->heap,(void **)cur);
++	TCOD_list_remove_iterator(path->heap,cur);
+ 	/* put it back on the heap */
+-	TCOD_list_push(path->heap,(void *)offset);
++	TCOD_list_push(path->heap,(void *)(uintptr_t)offset);
+ 	/* bubble the value up to its real position */
+ 	heap_sift_up(path,path->heap);
+@@ -209,7 +210,7 @@
+ 	do {
+ 		/* walk from destination to origin, using the 'prev' array */
+ 		int step=path->prev[ dx + dy * path->w ];
+-		TCOD_list_push(path->path,(void *)step);
++		TCOD_list_push(path->path,(void *)(intptr_t)step);
+ 		dx -= dirx[step];
+ 		dy -= diry[step];
+ 	} while ( dx != ox || dy != oy );
+@@ -222,7 +223,7 @@
+ 	int d;
+ 	TCOD_path_data_t *path=(TCOD_path_data_t *)p;
+ 	if ( TCOD_path_is_empty(path) ) return false;
+-	d=(int)TCOD_list_pop(path->path);
++	d=(int)(intptr_t)TCOD_list_pop(path->path);
+ 	newx=*x + dirx[d];
+ 	newy=*y + diry[d];
+ 	/* check if the path is still valid */
+@@ -257,7 +258,7 @@
+ 	*y=path->oy;
+ 	pos = TCOD_list_size(path->path)-1;
+ 	do {
+-		int step=(int)TCOD_list_get(path->path,pos);
++		int step=(int)(intptr_t)TCOD_list_get(path->path,pos);
+ 		*x += dirx[step];
+ 		*y += diry[step];
+ 		pos--;index--;
+--- a/src/sys_sdl_img_png.c
++++ b/src/sys_sdl_img_png.c
+@@ -65,7 +65,7 @@
+ 	if (info_ptr == NULL)
+ 	{
+ 		fclose(fp);
+-		png_destroy_read_struct(&png_ptr, png_infopp_NULL, png_infopp_NULL);
++		png_destroy_read_struct(&png_ptr, NULL, NULL);
+ 		return NULL;
+ 	}
+ 
+@@ -77,7 +77,7 @@
+ 	if (setjmp(png_jmpbuf(png_ptr)))
+ 	{
+ 		/* Free all of the memory associated with the png_ptr and info_ptr */
+-		png_destroy_read_struct(&png_ptr, &info_ptr, png_infopp_NULL);
++		png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+ 		fclose(fp);
+ 		/* If we get here, we had a problem reading the file */
+ 		return NULL;
+@@ -93,7 +93,7 @@
+ 	* adjustment), then you can read the entire image (including
+ 	* pixels) into the info structure with this call:
+ 	*/
+-	//png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_IDENTITY, png_voidp_NULL);
++	//png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_IDENTITY, NULL);
+ 
+ 	// get info about the image
+ 	png_read_info(png_ptr,info_ptr);
+@@ -112,7 +112,7 @@
+ 		&png_interlace_type,NULL,NULL);
+ 
+ 	// create the SDL surface
+-	bitmap=TCOD_sys_get_surface(png_width,png_height,info_ptr->channels == 4);
++	bitmap=TCOD_sys_get_surface(png_width,png_height,png_get_channels(png_ptr,info_ptr) == 4);
+ 
+ 	// get row data
+ 	row_pointers=(png_bytep *)malloc(sizeof(png_bytep)*png_height);
+@@ -124,7 +124,7 @@
+ 	png_read_image(png_ptr,row_pointers);
+ 
+ 	/* clean up after the read, and free any memory allocated - REQUIRED */
+-	png_destroy_read_struct(&png_ptr, &info_ptr, png_infopp_NULL);
++	png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+ 	free(row_pointers);
+ 
+ 	/* close the file */
+@@ -153,7 +153,7 @@
+ 	if (info_ptr == NULL)
+ 	{
+ 		fclose(fp);
+-		png_destroy_write_struct(&png_ptr, png_infopp_NULL);
++		png_destroy_write_struct(&png_ptr, NULL);
+ 		return;
+ 	}
+ 
+@@ -160,7 +160,7 @@
+ 	if (setjmp(png_jmpbuf(png_ptr)))
+ 	{
+ 		/* Free all of the memory associated with the png_ptr and info_ptr */
+-		png_destroy_read_struct(&png_ptr, &info_ptr, png_infopp_NULL);
++		png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+ 		fclose(fp);
+ 		/* If we get here, we had a problem reading the file */
+ 		return;
