@@ -1,0 +1,679 @@
+Description: Port emacs-cl's loader, evaluator, and compiler to Emacs 30.2.
+Upstream-status: Pending [upstream inactive since 2016]
+---
+diff --git a/src/cl-compile.el b/src/cl-compile.el
+index 62ecc5d7d2ea1b95022ab30cb52a05819c47e49a..21ec6e5765a92c4a396f70b59ed0f1f2deb80abc 100644
+--- a/src/cl-compile.el
++++ b/src/cl-compile.el
+@@ -180,18 +180,34 @@
+      ,@body))
+ 
+ (defun compile1 (form)
+-  (byte-compile (compile2 form)))
++  ;; The compiler emits dynamically scoped Emacs Lisp; compile it that
++  ;; way regardless of the caller's buffer-local `lexical-binding'.
++  ;; Expand macros before `byte-compile' so that `load-time-value'
++  ;; forms in the output become constants now.  Since Emacs 24,
++  ;; `cl-load-time-value' expanded by the compiler assumes a file
++  ;; compilation and would leave an unbound `--cl-load-time--N'.
++  ;;
++  ;; When the function closes over local functions, the compiler
++  ;; returns a closure-creating form, not a lambda expression.  Emacs
++  ;; `byte-compile' only returns a function for lambda expressions, so
++  ;; compile the form and evaluate it with an empty closure environment.
++  (let ((lexical-binding nil)
++	(elisp (macroexpand-all (compile2 form))))
++    (if (eq (car-safe elisp) 'lambda)
++	(byte-compile elisp)
++	(let ((env nil))
++	  (funcall (byte-compile `(lambda () ,elisp)))))))
+ 
+ (defun compile2 (form)
+   (with-fresh-context
+     (compile-form form *global-environment*)))
+ 
+-(defun cl-compiler-macroexpand (form name env)
++(defun emacs-cl-compiler-macroexpand (form name env)
+   (let* ((fn (COMPILER-MACRO-FUNCTION name))
+ 	 (new (if fn (FUNCALL *MACROEXPAND-HOOK* fn form env) form)))
+     (when (and (not (eq form new))
+ 	       (consp form))
+-      (setq form (cl-compiler-macroexpand
++      (setq form (emacs-cl-compiler-macroexpand
+ 		  new
+ 		  (if (eq (first new) 'FUNCALL)
+ 		      (second new)
+@@ -632,7 +648,7 @@
+ 	      ((interned-p name)
+ 	       `(,name ,@compiled-args))
+ 	      ((COMPILER-MACRO-FUNCTION name env)
+-	       (compile-form (cl-compiler-macroexpand form name env) env))
++	       (compile-form (emacs-cl-compiler-macroexpand form name env) env))
+ 	      ((and (symbolp name) (not *compile-file-mode*))
+ 	       `(,name ,@compiled-args))
+ 	      (t
+@@ -739,8 +755,10 @@
+     (defun cfref (fn i)
+       (aref fn i)))
+ 
+-(let ((fn (vector))
+-      (env (vector)))
++;; The placeholders must be distinct objects: Emacs 30 returns one
++;; shared object for every empty vector.
++(let ((fn (vector 'fn))
++      (env (vector 'env)))
+   (defvar *trampoline-template*
+     (byte-compile `(lambda (&rest args) (let ((env ,env)) (apply ,fn args)))))
+   (defvar *trampoline-constants*
+@@ -756,7 +774,7 @@
+     (error 6)))
+ 
+ (defmacro defun-make-closure ()
+-  `(defun make-closure (fn env)
++  `(defun emacs-cl-make-closure (fn env)
+      (let* ((consts (copy-sequence ,*trampoline-constants*))
+ 	    (tramp
+ 	     (make-byte-code
+@@ -829,7 +847,7 @@
+ 	body)))
+ 
+ (defun compile-closure (lambda-list body env)
+-  `(make-closure ,(expand-lambda
++  `(emacs-cl-make-closure ,(expand-lambda
+ 		   lambda-list
+ 		   (compile-env-inits body (compile-forms lambda-list env) env)
+ 		   env)
+@@ -900,7 +918,7 @@
+ 			      (values binding nil))
+ 			(cond
+ 			  ((and *compile-file-mode*
+-				(special-variable-p var new-env))
++				(emacs-cl-special-variable-p var new-env))
+ 			   (let ((old (new-register))
+ 				 (new (new-register)))
+ 			     (setq var (compile-variable var new-env))
+diff --git a/src/cl-conditions.el b/src/cl-conditions.el
+index b8b6e71..c68b898 100644
+--- a/src/cl-conditions.el
++++ b/src/cl-conditions.el
+@@ -149,6 +149,19 @@
+ ;; TODO: inherit from SIMPLE-CONDITION
+ (DEFINE-CONDITION SIMPLE-WARNING (WARNING) (format args))
+ 
++(defun batch-debugger-command ()
++  "Read a debugger command line from standard input in batch mode.
++   `read-char-exclusive' waits forever there when input is exhausted,
++   so exit Emacs with a failure status instead."
++  (let ((line (condition-case nil
++		  (read-from-minibuffer "")
++		(end-of-file
++		 (message "Debugger: end of input; exiting.")
++		 (kill-emacs 1)))))
++    (if (string= line "")
++	10
++	(aref line 0))))
++
+ (defun INVOKE-DEBUGGER (condition)
+   (let* ((hook *DEBUGGER-HOOK*)
+ 	 (*DEBUGGER-HOOK* nil))
+@@ -169,9 +182,13 @@
+     (let ((n -1) c)
+       (while (minusp n)
+ 	(message "Debugger command: ")
+-	(case (setq c (if (eval-when-compile (featurep 'xemacs))
+-			  (char-to-int (read-char-exclusive))
+-			  (read-char-exclusive)))
++	(case (setq c (cond
++			((eval-when-compile (featurep 'xemacs))
++			 (char-to-int (read-char-exclusive)))
++			(noninteractive
++			 (batch-debugger-command))
++			(t
++			 (read-char-exclusive))))
+ 	  ((114 48 49 50 51 52 53 54 55 56 57)
+ 	   (cond
+ 	     ((eq c 114)
+diff --git a/src/cl-environment.el b/src/cl-environment.el
+index f913563..50ae7be 100644
+--- a/src/cl-environment.el
++++ b/src/cl-environment.el
+@@ -142,7 +142,7 @@
+        (FORMAT stream "~%Property list: ~S" (symbol-plist object))))
+     ((integerp object)
+      (FORMAT stream "~&~A is a fixnum." object))
+-    ((bignump object)
++    ((emacs-cl-bignump object)
+      (FORMAT stream "~&~A is a bignum." object)
+      (FORMAT stream "~%It is encoded in ~D fixnums." (1- (length object))))
+     ((ratiop object)
+diff --git a/src/cl-eval.el b/src/cl-eval.el
+index da13835..66f77d4 100644
+--- a/src/cl-eval.el
++++ b/src/cl-eval.el
+@@ -96,7 +96,7 @@
+ (defun lexical-variable-p (var env)
+   (eq (nth-value 0 (variable-information var env)) :lexical))
+ 
+-(defun special-variable-p (var env)
++(defun emacs-cl-special-variable-p (var env)
+   (not (lexical-variable-p var env)))
+ 
+ ;;; TODO: let* bindings shouldn't be evaluated in an environment where
+@@ -456,7 +456,7 @@
+     ((subrp fn)
+      (let ((string (prin1-to-string fn)))
+        (substring string 7 (1- (length string)))))
+-    ((listp fn)
++    ((or (listp fn) (el-interpreted-function-p fn))
+      "")
+     (t
+      (type-error fn 'FUNCTION))))
+@@ -473,7 +473,7 @@
+      name)
+     ((subrp fn)
+      name)
+-    ((listp fn)
++    ((or (listp fn) (el-interpreted-function-p fn))
+      name)
+     (t
+      (type-error fn 'FUNCTION))))
+@@ -579,7 +579,7 @@
+ 	 ((setq fn (lexical-or-global-function name env))
+ 	  (let ((args (eval-forms (rest form) env)))
+ 	    (setq nvals 1 mvals nil)
+-	    (if (listp fn)
++	    (if (or (listp fn) (el-interpreted-function-p fn))
+ 		;; Special hack for interpreted Emacs Lisp function.
+ 		(apply fn args)
+ 		(APPLY fn args)))))))))
+@@ -616,9 +616,21 @@
+     (t		(ERROR "Error: ~A ~S" error args))))
+ 
+ (defun EVAL (form)
+-  (let ((debug-on-error t)
+-	(debug-on-quit t)
+-	(debug-on-signal t)
+-	(debug-ignored-errors nil)
+-	(debugger 'cl-debugger))
+-    (eval-with-env form nil)))
++  (if (fboundp 'handler-bind)
++      ;; Emacs 29 and later: convert an Emacs error into a Common Lisp
++      ;; condition only when no Emacs handler inside this evaluation
++      ;; catches it.  Emacs signals and catches errors internally, for
++      ;; example while byte-compile displays a warning; the
++      ;; `debug-on-signal' method below would turn those into Common
++      ;; Lisp errors and enter the debugger.
++      (let ((debug-on-quit t)
++	    (debugger 'cl-debugger))
++	(handler-bind ((error (lambda (condition)
++				(cl-debugger 'error condition))))
++	  (eval-with-env form nil)))
++      (let ((debug-on-error t)
++	    (debug-on-quit t)
++	    (debug-on-signal t)
++	    (debug-ignored-errors nil)
++	    (debugger 'cl-debugger))
++	(eval-with-env form nil))))
+diff --git a/src/cl-flow.el b/src/cl-flow.el
+index 4a32e56..7774f60 100644
+--- a/src/cl-flow.el
++++ b/src/cl-flow.el
+@@ -312,7 +312,10 @@
+ 	 (eq (CHAR-CODE x) (CHAR-CODE y)))
+ 	((and (floatp x) (floatp y))
+ 	 (equal x y))
+-	((and (bignump x) (bignump y))
++	;; Emacs 27 and later have native bignums, which are not `eq'.
++	((and (integerp x) (integerp y))
++	 (eql x y))
++	((and (emacs-cl-bignump x) (emacs-cl-bignump y))
+ 	 (and (eq (length x) (length y))
+ 	      (every #'eq x y)))
+ 	((and (ratiop x) (ratiop y))
+diff --git a/src/cl-numbers.el b/src/cl-numbers.el
+index c5d1e68..13179e9 100644
+--- a/src/cl-numbers.el
++++ b/src/cl-numbers.el
+@@ -41,7 +41,7 @@
+     ((or (ratiop num1) (ratiop num2))
+      (and (binary= (NUMERATOR num1) (NUMERATOR num2))
+ 	  (binary= (DENOMINATOR num1) (DENOMINATOR num2))))
+-    ((and (bignump num1) (bignump num2))
++    ((and (emacs-cl-bignump num1) (emacs-cl-bignump num2))
+      (and (= (length num1) (length num2))
+ 	  (every #'eql num1 num2)))
+     ((and (NUMBERP num1) (NUMBERP num2))
+@@ -72,7 +72,7 @@
+      ;; TODO
+      (< (/ (FLOAT (NUMERATOR num1)) (FLOAT (DENOMINATOR num1)))
+ 	(/ (FLOAT (NUMERATOR num2)) (FLOAT (DENOMINATOR num2)))))
+-    ((or (bignump num1) (bignump num2))
++    ((or (emacs-cl-bignump num1) (emacs-cl-bignump num2))
+      (MINUSP (binary- num1 num2)))
+     (t
+      (unless (REALP num1)
+@@ -100,7 +100,7 @@
+      ;; TODO
+      (<= (/ (FLOAT (NUMERATOR num1)) (FLOAT (DENOMINATOR num1)))
+ 	 (/ (FLOAT (NUMERATOR num2)) (FLOAT (DENOMINATOR num2)))))
+-    ((or (bignump num1) (bignump num2))
++    ((or (emacs-cl-bignump num1) (emacs-cl-bignump num2))
+      (let ((diff (binary- num1 num2)))
+        (or (MINUSP diff) (ZEROP diff))))
+     (t
+@@ -128,7 +128,7 @@
+   (cond
+     ((or (integerp num) (floatp num))
+      (minusp num))
+-    ((bignump num)
++    ((emacs-cl-bignump num)
+      (minusp (aref num (1- (length num)))))
+     ((ratiop num)
+      (MINUSP (NUMERATOR num)))
+@@ -139,7 +139,7 @@
+   (cond
+     ((or (integerp num) (floatp num))
+      (plusp num))
+-    ((bignump num)
++    ((emacs-cl-bignump num)
+      (>= (aref num (1- (length num))) 0))
+     ((ratiop num)
+      (PLUSP (NUMERATOR num)))
+@@ -154,7 +154,7 @@
+      (ZEROP (NUMERATOR num)))
+     ((COMPLEXP num)
+      (and (ZEROP (REALPART num)) (ZEROP (IMAGPART num))))
+-    ((bignump num)
++    ((emacs-cl-bignump num)
+      nil)
+     (t
+      (type-error num 'NUMBER))))
+@@ -471,7 +471,7 @@
+      (make-ratio (binary+ (binary* (NUMERATOR x) (DENOMINATOR y))
+ 			  (binary* (DENOMINATOR x) (NUMERATOR y)))
+ 		 (binary* (DENOMINATOR x) (DENOMINATOR y))))
+-    ((or (bignump x) (bignump y))
++    ((or (emacs-cl-bignump x) (emacs-cl-bignump y))
+ ;    (print (format "%s %s" x y))
+      (cond
+        ((integerp x)	(bignum+fixnum y x))
+@@ -510,7 +510,7 @@
+ 
+ (defun canonical-bignum (object)
+   (cond
+-    ((bignump object)
++    ((emacs-cl-bignump object)
+      (canonical-bignum (bignum-list object)))
+     ((listp object)
+      (setq object (truncate-sign-extension object))
+@@ -581,7 +581,7 @@
+ 	 (vector 'RATIO (cl:- (NUMERATOR number)) (DENOMINATOR number)))
+ 	((COMPLEXP number)
+ 	 (vector 'COMPLEX (cl:- (REALPART number)) (cl:- (IMAGPART number))))
+-	((bignump number)
++	((emacs-cl-bignump number)
+ 	 (bignum+fixnum (LOGNOT number) 1))
+ 	(t
+ 	 (error "error")))
+@@ -598,7 +598,7 @@
+ 	 (vector 'RATIO 1 number))
+ 	((floatp number)
+ 	 (/ 1.0 number))
+-	((bignump number)
++	((emacs-cl-bignump number)
+ 	 (vector 'RATIO 1 number))
+ 	((ratiop number)
+ 	 (make-ratio (DENOMINATOR number) (NUMERATOR number)))
+@@ -656,7 +656,7 @@
+      (let ((r (FLOAT (REALPART number)))
+ 	   (i (FLOAT (IMAGPART number))))
+        (sqrt (+ (* r r) (* i i)))))
+-    ((bignump number)
++    ((emacs-cl-bignump number)
+      (if (MINUSP number)
+ 	 (cl:- number)
+ 	 number))
+@@ -846,7 +846,7 @@
+      (random limit))
+     ((floatp limit)
+      (/ (* limit (random MOST-POSITIVE-FIXNUM)) MOST-POSITIVE-FIXNUM))
+-    ((bignump limit)
++    ((emacs-cl-bignump limit)
+      ;; TODO
+      0)))
+ 
+@@ -981,7 +981,7 @@
+      (cond
+        ((integerp num)
+ 	(ash num shift))
+-       ((bignump num)
++       ((emacs-cl-bignump num)
+ 	(let ((new (copy-sequence num)))
+ 	  (while (MINUSP shift)
+ 	    (shift-right new)
+@@ -1014,7 +1014,7 @@
+   (cond
+     ((eq num 0)		0)
+     ((integerp num)	(1+ (logb num)))
+-    ((bignump num)	(let* ((len (1- (length num)))
++    ((emacs-cl-bignump num)	(let* ((len (1- (length num)))
+ 			       (last (aref num len)))
+ 			  (+ (* fixnum-bits (1- len))
+ 			     (if (zerop last)
+@@ -1022,11 +1022,11 @@
+ 				 (1+ (logb last))))))
+     (t			(type-error num 'INTEGER))))
+ 
+-(defun bignump (num)
++(defun emacs-cl-bignump (num)
+   (vector-and-typep num 'BIGNUM))
+ 
+ (defun INTEGERP (num)
+-  (or (integerp num) (bignump num)))
++  (or (integerp num) (emacs-cl-bignump num)))
+ 
+ (cl:defun PARSE-INTEGER (string &KEY (START 0) (END (LENGTH string))
+ 			             (RADIX 10) JUNK-ALLOWED)
+@@ -1109,7 +1109,7 @@
+   (cond
+     ((integerp num)
+      (lognot num))
+-    ((bignump num)
++    ((emacs-cl-bignump num)
+      ;; TODO: may need one more element in result.
+      (let ((new (make-vector (length num) 'BIGNUM)))
+        (dotimes (i (1- (length num)))
+@@ -1125,19 +1125,19 @@
+   (cond
+     ((and (integerp x) (integerp y))
+      (logand x y))
+-    ((and (bignump x) (integerp y))
++    ((and (emacs-cl-bignump x) (integerp y))
+      (if (minusp y)
+ 	 (let ((new (copy-sequence x)))
+ 	   (aset new 1 (logand (aref x 1) y))
+ 	   new)
+ 	 (logand (aref x 1) y)))
+-    ((and (bignump y) (integerp x))
++    ((and (emacs-cl-bignump y) (integerp x))
+      (if (minusp x)
+ 	 (let ((new (copy-sequence y)))
+ 	   (aset new 1 (logand (aref y 1) x))
+ 	   new)
+ 	 (logand (aref y 1) x)))
+-    ((and (bignump x) (bignump y))
++    ((and (emacs-cl-bignump x) (emacs-cl-bignump y))
+      (bignum-logand x y))
+     (t
+      (unless (INTEGERP x)
+@@ -1163,19 +1163,19 @@
+   (cond
+     ((and (integerp x) (integerp y))
+      (logior x y))
+-    ((and (bignump x) (integerp y))
++    ((and (emacs-cl-bignump x) (integerp y))
+      (if (minusp y)
+ 	 (logior (aref x 1) y)
+ 	 (let ((new (copy-sequence x)))
+ 	   (aset new 1 (logior (aref x 1) y))
+ 	   new)))
+-    ((and (bignump y) (integerp x))
++    ((and (emacs-cl-bignump y) (integerp x))
+      (if (minusp x)
+ 	 (logior (aref y 1) x)
+ 	 (let ((new (copy-sequence y)))
+ 	   (aset new 1 (logior (aref y 1) x))
+ 	   new)))
+-    ((and (bignump x) (bignump y))
++    ((and (emacs-cl-bignump x) (emacs-cl-bignump y))
+      (bignum-logior x y))
+     (t
+      (unless (INTEGERP x)
+@@ -1222,21 +1222,21 @@
+   (cond
+     ((and (integerp x) (integerp y))
+      (logxor x y))
+-    ((and (bignump x) (integerp y))
++    ((and (emacs-cl-bignump x) (integerp y))
+      (let ((new (copy-sequence x)))
+        (aset new 1 (logxor (aref x 1) y))
+        (when (minusp y)
+ 	 (dotimes (i (- (length x) 2))
+ 	   (aset new (+ i 2) (lognot (aref new (+ i 2))))))
+        new))
+-    ((and (bignump y) (integerp x))
++    ((and (emacs-cl-bignump y) (integerp x))
+      (let ((new (copy-sequence y)))
+        (aset new 1 (logior (aref y 1) x))
+        (when (minusp x)
+ 	 (dotimes (i (- (length y) 2))
+ 	   (aset new (+ i 2) (lognot (aref new (+ i 2))))))
+        new))
+-    ((and (bignump x) (bignump y))
++    ((and (emacs-cl-bignump x) (emacs-cl-bignump y))
+      (bignum-logxor x y))
+     (t
+      (unless (INTEGERP x)
+@@ -1266,7 +1266,7 @@
+      (if (>= index fixnum-bits)
+ 	 (minusp integer)
+ 	 (not (zerop (logand integer (ash 1 index))))))
+-    ((bignump integer)
++    ((emacs-cl-bignump integer)
+      (if (>= index (* fixnum-bits (1- (length integer))))
+ 	 (MINUSP integer)
+ 	 (let ((i (1+ (/ index fixnum-bits)))
+@@ -1422,7 +1422,7 @@
+      num)
+     ((ratiop num)
+      (/ (FLOAT (NUMERATOR num)) (FLOAT (DENOMINATOR num))))
+-    ((bignump num)
++    ((emacs-cl-bignump num)
+      (bignum-float num))
+     (t
+      (type-error num 'REAL))))
+diff --git a/src/cl-objects.el b/src/cl-objects.el
+index 360bbe6..41ee400 100644
+--- a/src/cl-objects.el
++++ b/src/cl-objects.el
+@@ -107,7 +107,7 @@
+ 				    DIRECT-SLOTS
+ 				    DIRECT-DEFAULT-INITARGS
+ 				    (METACLASS 'STANDARD-CLASS))
+-  (when (some #'built-in-class-p DIRECT-SUPERCLASSES)
++  (when (some #'emacs-cl-built-in-class-p DIRECT-SUPERCLASSES)
+     (ERROR "Can't make subclass of a built-in class."))
+   (unless (symbolp METACLASS)
+     (setq METACLASS (CLASS-NAME METACLASS)))
+@@ -219,7 +219,7 @@
+ ;; keyword		standard-char
+ ;; long-float		unsigned-byte
+ 
+-(defun built-in-class-p (class) nil)
++(defun emacs-cl-built-in-class-p (class) nil)
+ (defvar *classes* (make-hash-table :test #'eq))
+ (defconst +array-class+	       (make-built-in-class 'ARRAY))
+ (defconst +bit-vector-class+   (make-built-in-class 'BIT-VECTOR '(VECTOR)))
+@@ -299,7 +299,7 @@
+ (defconst +vector-class+       (make-built-in-class 'VECTOR '(ARRAY SEQUENCE)))
+ (dolist (args *initial-classes*)
+   (apply #'ENSURE-CLASS args))
+-(defun built-in-class-p (class)
++(defun emacs-cl-built-in-class-p (class)
+   (when (symbolp class)
+     (setq class (FIND-CLASS class)))
+   (eq (CLASS-OF class) +built-in-class+))
+@@ -444,7 +444,7 @@
+ (defun MAKE-INSTANCE (class &rest initargs)
+   (when (symbolp class)
+     (setq class (FIND-CLASS class)))
+-  (when (built-in-class-p class)
++  (when (emacs-cl-built-in-class-p class)
+     (ERROR "Can't make instance of a built-in class."))
+   ;; TODO: Augment initargs with default initargs.
+   (let ((instance (apply #'ALLOCATE-INSTANCE class initargs)))
+@@ -692,8 +692,11 @@
+ 	;; possible return values for Emacs Lisp type-of.
+ 	((bit-vector bool-vector)
+ 			+bit-vector-class+)
+-	(subr		+function-class+)
+-	(compiled-function
++	((subr interpreted-function)
++			+function-class+)
++	;; Emacs 30 reports byte-code objects as `byte-code-function' and
++	;; evaluated Emacs Lisp lambdas as `interpreted-function'.
++	((compiled-function byte-code-function)
+ 			(let ((info (gethash object *funcallable-objects*)))
+ 			  (if info
+ 			      (FIND-CLASS (car info))
+diff --git a/src/cl-reader.el b/src/cl-reader.el
+index 5d7dc2e..571cf30 100644
+--- a/src/cl-reader.el
++++ b/src/cl-reader.el
+@@ -710,6 +710,10 @@
+ 	(second form))
+        ((COMMA-AT COMMA-DOT)
+ 	(ERROR "Syntax error in backquote."))
++       (BACKQUOTE
++	;; Nested backquote: expand the innermost one first, then treat
++	;; its expansion as the template for this level (CLHS 2.4.6).
++	(expand-bq (fold-bq (optimize-bq (expand-bq (second form))))))
+        (t
+ 	(cons 'APPEND (expand-bq-list form)))))
+     ((SIMPLE-VECTOR-P form)
+@@ -735,6 +739,20 @@
+ 	 (expand-bq-list cdr)
+ 	 `((QUOTE ,cdr))))))
+ 
++(defun fold-bq (form)
++  "Turn a LIST or LIST* form whose arguments are all quoted into a
++   quoted constant.  Used on an inner backquote expansion before the
++   enclosing backquote uses it as a template."
++  (if (and (consp form)
++	   (memq (first form) '(LIST LIST*))
++	   (every (lambda (x) (and (consp x) (eq (first x) 'QUOTE)))
++		  (rest form)))
++      (let ((values (mapcar #'second (rest form))))
++	`(QUOTE ,(if (eq (first form) 'LIST)
++		     values
++		     (apply #'list* values))))
++      form))
++
+ (defun optimize-bq (form)
+   (if (and (consp form)
+ 	   (eq (first form) 'APPEND))
+diff --git a/src/cl-subtypep.el b/src/cl-subtypep.el
+index fdb8a15..5a77ed2 100644
+--- a/src/cl-subtypep.el
++++ b/src/cl-subtypep.el
+@@ -441,7 +441,8 @@
+   (when (consp type)
+     (case (first type)
+       ((AND OR NOT)
+-       (mapc #'find-new-objects (rest type)))
++       (dolist (x (rest type))
++	 (find-new-objects x env)))
+       (EQL
+        (push type *types*)
+        (pushnew (second type) *subtypep-objects*))
+diff --git a/src/cl-types.el b/src/cl-types.el
+index 4b1a2f9..fd8f755 100644
+--- a/src/cl-types.el
++++ b/src/cl-types.el
+@@ -224,7 +224,10 @@
+ 			`(SIMPLE-BIT-VECTOR ,(length object)))
+        (subr
+ 			'COMPILED-FUNCTION)
+-       (compiled-function
++       (interpreted-function
++			'FUNCTION)
++       ;; Emacs 30 reports byte-code objects as `byte-code-function'.
++       ((compiled-function byte-code-function)
+ 			(let ((info (gethash object *funcallable-objects*)))
+ 			  (if info
+ 			      (car info)
+diff --git a/src/load-cl.el b/src/load-cl.el
+index 4e62283..425f338 100644
+--- a/src/load-cl.el
++++ b/src/load-cl.el
+@@ -15,9 +15,6 @@
+ (defmacro IN-PACKAGE (name) nil)
+ (defun FIND-PACKAGE (name) nil)
+ 
+-(unless (fboundp 'cl-mapcar-many)
+-  (fset 'cl-mapcar-many (symbol-function 'cl--mapcar-many)))
+-
+ (defvar *cl-files*
+   '("utils"
+     "func"
+@@ -59,12 +56,33 @@
+ 
+     "populate"))
+ 
++(defun load-cl-file (file)
++  "Load the emacs-cl source FILE, evaluating one top-level form at a time.
++Emacs 24 and later expand every macro in a form before evaluating it
++when `load' reads a source file.  The emacs-cl sources use macros whose
++expanders call functions defined later in the same files, so they must
++be evaluated the way `load' did before eager macro expansion."
++  (let ((path (locate-library (concat file ".el") t))
++	(eof (make-symbol "eof")))
++    (unless path
++      (error "Cannot find emacs-cl file %s.el" file))
++    (with-temp-buffer
++      (insert-file-contents path)
++      (let ((load-file-name path)
++	    (load-in-progress t)
++	    (form nil))
++	(while (not (eq (setq form (condition-case nil
++				       (read (current-buffer))
++				     (end-of-file eof)))
++			eof))
++	  (eval form nil))))))
++
+ (defun load-cl ()
+   (interactive)
+   (let ((load-path (cons (file-name-directory load-file-name) load-path))
+ 	(debug-on-error t)
+ 	(byte-compile-warnings nil))
+-    (mapc #'load *cl-files*)
++    (mapc #'load-cl-file *cl-files*)
+     (populate-packages)
+     (garbage-collect)))
+ 
+diff --git a/src/utils.el b/src/utils.el
+index 480cbfa..dc3c459 100644
+--- a/src/utils.el
++++ b/src/utils.el
+@@ -42,7 +42,14 @@
+   (apply #'append
+    (if (null (cdr lists))
+        (mapcar fn (car lists))
+-       (cl-mapcar-many fn lists))))
++       (apply #'cl-mapcar fn lists))))
++
++;;; Emacs 30 represents evaluated `lambda' forms as `interpreted-function'
++;;; objects instead of lists beginning with `lambda'.
++(defun el-interpreted-function-p (object)
++  (or (and (consp object) (eq (car object) 'lambda))
++      (and (fboundp 'interpreted-function-p)
++	   (interpreted-function-p object))))
+ 
+ (defun vector-and-typep (object type)
+   (and (vectorp object)
+@@ -64,10 +71,11 @@
+ 		   :from-end t :initial-value `(apply ',fn1 args))))
+       #'identity))
+ 
+-(defun ensure-list (object)
+-  (if (listp object)
+-      object
+-      (list object)))
++(unless (fboundp 'ensure-list)
++  (defun ensure-list (object)
++    (if (listp object)
++        object
++        (list object))))
+ 
+ (defmacro* do-list-designator ((var list &optional result) &body body)
+   `(dolist (,var (ensure-list ,list) ,result)
