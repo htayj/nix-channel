@@ -1,0 +1,293 @@
+Cracks and Crevices 0.5: Use private per-user XDG state without changing HOME or game controls.
+Keep all ordinary save/config/dump basenames; remove shared score fallback.
+
+--- a/sys_unix.c
++++ b/sys_unix.c
+@@ -6,11 +6,8 @@
+ 	#include <unistd.h>
+ 	#include <sys/stat.h>
+ 	#include <sys/types.h>
++	#include <errno.h>
+ 
+-char* system_getscore_dir(void)
+-{
+-	return "/var/games/cracks_and_crevices/";
+-}
+ 
+ char* system_getusername(void)
+ {
+@@ -52,8 +49,9 @@
+ 		exit(0);
+ 	}
+ 
+-	create_save_directory();
+-	return 0;
++	/* All files created by the game are private to the current user. */
++	umask(077);
++	return create_save_directory();
+ }
+ 
+ int system_shutdown(void)
+@@ -68,21 +66,27 @@
+ 
+ char* get_save_file(void)
+ {
+-	return strdup(".cracks_and_crevices");
++	return strdup("cracks-and-crevices");
+ }
+ 
+ char* get_home_path(void)
+ {
+-	char *p;
++	const char *p = getenv("XDG_STATE_HOME");
++	char *path;
++
++	/* XDG paths must be absolute.  HOME itself is never changed. */
++	if (p != NULL && p[0] == '/')
++		return strdup(p);
+ 
+ 	p = getenv("HOME");
+-
+-	if (p == NULL)
+-		LogError("environment variable 'home' is null.");
+-
+-	assert(p != NULL);
+-
+-	return strdup(p);
++	if (p == NULL || p[0] != '/')
++	{
++		LogError("HOME must be an absolute path when XDG_STATE_HOME is unset.\n");
++		exit(EXIT_FAILURE);
++	}
++	path = malloc(strlen(p) + sizeof("/.local/state"));
++	sprintf(path, "%s/.local/state", p);
++	return path;
+ }
+ 
+ /*
+@@ -90,38 +94,42 @@
+ */
+ int create_save_directory(void)
+ {
+-	char *pth;
+-	char *sfile;
++	char *pth = get_home_path();
++	char *sfile = get_save_file();
++	char *q = malloc(strlen(pth) + strlen(sfile) + 2);
++	char *p;
+ 	struct stat buffer;
++	int rc = 0;
+ 
+-	int rc;
+-	char *q;
++	sprintf(q, "%s/%s", pth, sfile);
++	free(pth);
++	free(sfile);
+ 
+-	pth = get_home_path();
+-	sfile = get_save_file();
+-
+-	q = malloc(strlen(pth) + strlen(sfile) + 4);
+-
+-	strcpy(q, pth);
+-	strcat(q, "/");
+-	strcat(q, sfile);
+-	free(sfile);
+-	free(pth);
+-
+-	stat(q, &buffer);
+-
+-	rc = 0;
+-
+-	if (S_ISDIR(buffer.st_mode) == 0)
++	/* Create missing parents without relying on an external mkdir program. */
++	for (p = q + 1; ; ++p)
+ 	{
+-		// have only rw for owner bits on
+-		rc = mkdir(q, __S_IREAD | __S_IWRITE | __S_IEXEC);
+-
+-		LogInfo("attempt to create %s\n", q);
++		if (*p == '/' || *p == '\0')
++		{
++			char separator = *p;
++			*p = '\0';
++			if (mkdir(q, 0700) != 0 && errno != EEXIST)
++				rc = -1;
++			*p = separator;
++			if (rc != 0 || separator == '\0')
++				break;
++		}
+ 	}
+-
++	if (rc == 0 && (lstat(q, &buffer) != 0 ||
++	                !S_ISDIR(buffer.st_mode) || buffer.st_uid != getuid()))
++	{
++		errno = EACCES;
++		rc = -1;
++	}
++	if (rc == 0)
++		rc = chmod(q, 0700);
++	if (rc != 0)
++		LogError("Cannot create private state directory %s: %s\n", q, strerror(errno));
+ 	free(q);
+-
+ 	return rc;
+ }
+ 
+--- a/sys_unix.h
++++ b/sys_unix.h
+@@ -11,7 +11,6 @@
+ extern "C"{
+ #endif
+ 
+-extern char* system_getscore_dir(void);
+ extern char* system_getusername(void);
+ extern int system_startup(void);
+ extern int system_shutdown(void);
+--- a/sys_win32.c
++++ b/sys_win32.c
+@@ -57,22 +57,6 @@
+ 	setvbuf( stderr, NULL, _IONBF, 0 );
+ } */
+ 
+-char* system_getscore_dir(void)
+-{
+-	char *p;
+-
+-	/*
+-	Win2K and up have userprofile
+-	*/
+-	p = getenv("USERPROFILE");
+-
+-	if(p == NULL)
+-		LogError("environment variable 'USERPROFILE' is null.");
+-
+-	assert(p != NULL);
+-
+-	return p;
+-}
+ 
+ char* system_getusername(void)
+ {
+--- a/sys_win32.h
++++ b/sys_win32.h
+@@ -12,7 +12,6 @@
+ extern "C"{
+ #endif
+ 
+-extern char* system_getscore_dir(void);
+ extern char* system_getusername(void);
+ extern int system_startup(void);
+ extern int system_shutdown(void);
+--- a/chardump.c
++++ b/chardump.c
+@@ -270,7 +270,7 @@
+ 		char *death_msg;
+ 
+ 		chardump_fprintf(fp, "%s\n", game_title);
+-		chardump_fprintf(fp, "Compiled on " __DATE__ "; " __TIME__ "\n");
++		chardump_fprintf(fp, "Build timestamp omitted for reproducibility.\n");
+ 
+ 		chardump_fprintf(fp, "\n");
+ 		chardump_fprintf(fp, "Name : %s\n", GetPlayerName());
+@@ -471,15 +471,13 @@
+ 
+ static char* GetScoreFilename(void)
+ {
+-	char *score_dir;
+-	char *fpath;
+-
+-	score_dir = system_getscore_dir();
+-
+-	fpath = malloc(strlen(score_dir) + strlen(SCORE_FILE) + 8);
+-	strcpy(fpath, score_dir);
+-	strcat(fpath, "/");
+-	strcat(fpath, SCORE_FILE);
++	char *base = get_home_path();
++	char *directory = get_save_file();
++	char *fpath = malloc(strlen(base) + strlen(directory) + strlen(SCORE_FILE) + 3);
++
++	sprintf(fpath, "%s/%s/%s", base, directory, SCORE_FILE);
++	free(base);
++	free(directory);
+ 
+ 	return fpath;
+ }
+@@ -494,39 +492,8 @@
+ 
+ 	inf = INI_load(fpath);
+ 	if (inf == NULL)
+-	{
+-		char *home_env;
+-		char *score_name;
+-		char *sfile;
+-
+-		free(fpath);
+-
+-		home_env = get_home_path();
+-		score_name = strdup(SCORE_FILE);
+-		sfile = get_save_file();
+-
+-		if (home_env != NULL)
+-		{
+-			fpath = malloc(strlen(home_env) + strlen(sfile) + strlen(score_name) + 8);
+-			strcpy(fpath, home_env);
+-			strcat(fpath, "/");
+-			strcat(fpath, sfile);
+-			strcat(fpath, "/");
+-			strcat(fpath, score_name);
+-
+-			free(home_env);
+-			free(sfile);
+-			free(score_name);
+-		};
+-		inf = INI_load(fpath);
+-
+-		if (inf == NULL)
+-			inf = INI_EmptyINF();
+-
+-		INI_UpdateItem(inf, "ScoreInfo", "type", "Local User Only");
+-	}
+-	else
+-		INI_UpdateItem(inf, "ScoreInfo", "type", "Shared Network Users");
++		inf = INI_EmptyINF();
++	INI_UpdateItem(inf, "ScoreInfo", "type", "Local User Only");
+ 
+ 	hsl = LoadScores(inf, sort_by);
+ 
+@@ -688,34 +655,7 @@
+ 		INI_UpdateItem(inf, x, "level", s);
+ 	}
+ 
+-	if (INI_save(fpath, inf) == 1)
+-	{
+-		char *home_env;
+-		char *score_name;
+-		char *sfile;
+-
+-		free(fpath);
+-
+-		home_env = get_home_path();
+-		score_name = strdup(SCORE_FILE);
+-		sfile = get_save_file();
+-
+-		if (home_env != NULL)
+-		{
+-			fpath = malloc(strlen(home_env) + strlen(sfile) + strlen(score_name) + 8);
+-			strcpy(fpath, home_env);
+-			strcat(fpath, "/");
+-			strcat(fpath, sfile);
+-			strcat(fpath, "/");
+-			strcat(fpath, score_name);
+-
+-			free(home_env);
+-			free(sfile);
+-			free(score_name);
+-		}
+-
+-		INI_save(fpath, inf);
+-	}
++	INI_save(fpath, inf);
+ 
+ 	INI_unload(inf);
+ 

@@ -1,0 +1,850 @@
+Cracks and Crevices 0.5: honor linker flags and explicitly link libm.
+Retain release warning diagnostics; fix misleading indentation, terminated
+item names, and a MEMWATCH format type.  Do not disable fortification.
+Omit unstable compiler timestamps for reproducibility.
+
+--- a/Makefile
++++ b/Makefile
+@@ -21,7 +21,7 @@
+ endif
+ 
+ CC=gcc
+-CFLAGS=-O2 -Wshadow -Wall -Werror -std=gnu99 -pedantic -D_FORTIFY_SOURCE=0 -DVMAJ=0 -DVMIN=5 -DVBUILD=757 -D$(PLATFORM)
++CFLAGS=-O2 -Wshadow -Wall -Werror -std=gnu99 -pedantic -DVMAJ=0 -DVMIN=5 -DVBUILD=757 -D$(PLATFORM)
+ 
+ EXEC=cnc
+ 
+@@ -30,7 +30,7 @@
+ LIBS= $(PLATFORM_LIBS)
+ 
+ cnc: $(OBJS) $(PLATFORM_OBJS)
+-	$(CC) -o $(EXEC) $(OBJS) $(PLATFORM_OBJS) -lSDL $(LIBS)
++	$(CC) $(LDFLAGS) -o $(EXEC) $(OBJS) $(PLATFORM_OBJS) -lSDL -lm $(LIBS)
+ 
+ clean:
+ 	rm -rf *.o *.bak $(EXEC) stderr.txt stdout.txt
+--- a/main.c
++++ b/main.c
+@@ -244,7 +244,7 @@
+ 	sprintf(game_title, "" GAME_TITLE " v%i.%02i/%04i", VersionMajor(), VersionMinor(), VersionBuild());
+ 
+ 	LogInfo("%s\n", game_title);
+-	LogInfo("Compiled on " __DATE__ "; " __TIME__ "\n");
++	LogInfo("Build timestamp omitted for reproducibility.\n");
+ 
+ 	int_OptDebug = 0;
+ 	int_OptCheat = 0;
+--- a/version.c
++++ b/version.c
+@@ -3,11 +3,11 @@
+ 
+ const char* VersionTime(void)
+ {
+-	return __TIME__;
++	return "not recorded";
+ }
+ const char* VersionDate(void)
+ {
+-	return __DATE__;
++	return "not recorded";
+ }
+ uint16_t VersionMajor(void)
+ {
+--- a/configure.c
++++ b/configure.c
+@@ -56,15 +56,20 @@
+ 
+ 
+ 	if (auto_pickup_gold == 1) sprintf(s, "true");
+-	else sprintf(s, "false"); INI_UpdateItem(inf, "autopickup", "gold", s);
++	else sprintf(s, "false");
++	INI_UpdateItem(inf, "autopickup", "gold", s);
+ 	if (auto_pickup_weapons == 1) sprintf(s, "true");
+-	else sprintf(s, "false"); INI_UpdateItem(inf, "autopickup", "weapons", s);
++	else sprintf(s, "false");
++	INI_UpdateItem(inf, "autopickup", "weapons", s);
+ 	if (auto_pickup_armour == 1) sprintf(s, "true");
+-	else sprintf(s, "false"); INI_UpdateItem(inf, "autopickup", "armour", s);
++	else sprintf(s, "false");
++	INI_UpdateItem(inf, "autopickup", "armour", s);
+ 	if (auto_pickup_potions == 1) sprintf(s, "true");
+-	else sprintf(s, "false"); INI_UpdateItem(inf, "autopickup", "potions", s);
++	else sprintf(s, "false");
++	INI_UpdateItem(inf, "autopickup", "potions", s);
+ 	if (auto_pickup_scrolls == 1) sprintf(s, "true");
+-	else sprintf(s, "false"); INI_UpdateItem(inf, "autopickup", "scrolls", s);
++	else sprintf(s, "false");
++	INI_UpdateItem(inf, "autopickup", "scrolls", s);
+ 
+ 	INI_save(fpath, inf);
+ 
+--- a/data.c
++++ b/data.c
+@@ -21,7 +21,7 @@
+ 	x->gid = GenerateID();
+ 	x->data_idx = items[idx]->data_idx;
+ 	//x->name = strdup( items[idx]->name );
+-	strncpy(x->name, items[idx]->name, 48);
++	snprintf(x->name, sizeof(x->name), "%s", items[idx]->name);
+ 	x->cost = items[idx]->cost;
+ 	x->flags = items[idx]->flags;
+ 	x->type = items[idx]->type;
+@@ -95,7 +95,7 @@
+ 	ITEM *t = calloc(1, sizeof(ITEM));
+ 
+ 	t->type = type;
+-	strncpy(t->name, name, 48);
++	snprintf(t->name, sizeof(t->name), "%s", name);
+ 	t->cost = cost;
+ 
+ 	return t;
+--- a/memwatch.c
++++ b/memwatch.c
+@@ -1039,7 +1039,7 @@
+ 			TESTS(file,line);
+ 			mwCounter ++;
+ 			mwWrite( "limit fail: <%ld> %s(%d), %ld wanted %ld available\n",
+-					 mwCounter, file, line, (unsigned long)size - mw->size, mwAllocLimit - mwStatCurAlloc );
++					 mwCounter, file, line, (long)size - (long)mw->size, mwAllocLimit - mwStatCurAlloc );
+ 			mwIncErr();
+ 			FLUSH();
+ 			MW_MUTEX_UNLOCK();
+--- a/actor.c
++++ b/actor.c
+@@ -675,13 +675,11 @@
+ 
+ 	while (game_ok == 0 && dlist_size(lst) > 0)
+ 	{
+-		int rc;
+-
+ 		dt = dlist_pop(lst);
+ 		a = mh_ptr(dt->obj);
+ 
+ 		// work actor reduces speed
+-		rc = WorkActor(a, dt, dt->row, dt->col);
++		WorkActor(a, dt, dt->row, dt->col);
+ 
+ 		if ( GetLife(a) <= 0)
+ 		{
+--- a/dlist.c
++++ b/dlist.c
+@@ -24,7 +24,8 @@
+ 	if (dlist_size(list) == 0)
+ 		return NULL;
+ 
+-	dlist_remove(list, dlist_head(list), (void**)&data);
++	if (dlist_remove(list, dlist_head(list), &data) != 0)
++		return NULL;
+ 	return data;
+ }
+ 
+--- a/tiles.c
++++ b/tiles.c
+@@ -483,11 +483,9 @@
+ void player_seen_facingxx(int row, int col, int radius)
+ {
+ 	int i;
+-	int last_fov_count;
+ 
+ 	int direction = 0;
+ 
+-	last_fov_count = fov_index;
+ 	mHand last_target = GetCurrentTarget();
+ 
+ 
+@@ -527,9 +525,6 @@
+ 	int p, q;
+ 	int radius = rad;
+ 
+-	int last_fov_count;
+-
+-	last_fov_count = fov_index;
+ 	mHand last_target = GetCurrentTarget();
+ 
+ 	ClearFOVList();
+@@ -1435,9 +1430,6 @@
+ {
+ 	int i;
+ 
+-	int last_fov_count;
+-
+-	last_fov_count = fov_index;
+ 	mHand last_target = GetCurrentTarget();
+ 
+ 	ClearFOVList();
+@@ -1463,9 +1455,6 @@
+ 	int j;
+ 	int p, q;
+ 
+-	int last_fov_count;
+-
+-	last_fov_count = fov_index;
+ 	mHand last_target = GetCurrentTarget();
+ 
+ 	ClearFOVList();
+--- a/memwatch.c
++++ b/memwatch.c
+@@ -1908,7 +1908,7 @@
+ 			if ( mw1->next )
+ 			{
+ 				if ( !mwIsReadAddr(mw1->next,mwDataSize) ||
+-					 !mw1->next->check != CHKVAL(mw1) ||
++					 mw1->next->check != CHKVAL(mw1->next) ||
+ 					 mw1->next->prev != mw1 )
+ 				{
+ 					mwWrite("relink: forward chain's last intact MW is MW-%p, %ld %sbytes at %s(%d)\n",
+@@ -1950,7 +1950,7 @@
+ 			if ( mw2->prev )
+ 			{
+ 				if ( !mwIsReadAddr(mw2->prev,mwDataSize) ||
+-					 !mw2->prev->check != CHKVAL(mw2) ||
++					 mw2->prev->check != CHKVAL(mw2->prev) ||
+ 					 mw2->prev->next != mw2 )
+ 				{
+ 					mwWrite("relink: reverse chain's last intact MW is MW-%p, %ld %sbytes at %s(%d)\n",
+--- a/bank.c
++++ b/bank.c
+@@ -167,8 +167,6 @@
+ 	//int flag;
+ 	char *fn1, *fn2;
+ 
+-	int item_type;
+-
+ 	setcolour(CLR_NORMAL, CLR_NORMAL_BG);
+ 	ClearScreenNoFlip(frame, CLR_NORMAL_BG);
+ 
+@@ -187,7 +185,6 @@
+ 
+ 	row = getrow();
+ 	key = 0;
+-	item_type = 0;
+ 
+ 	while (key != 'l')
+ 	{
+--- a/data.c
++++ b/data.c
+@@ -772,11 +772,9 @@
+ 
+ void InitMonsters(void)
+ {
+-	MONSTER *x;
+-
+ 	monsters = calloc(32, sizeof(MONSTER));
+ 
+-	x = SetupMonster("human",				/* name */
++	SetupMonster("human",				/* name */
+ 					 "the ", "a ",
+ 					 '@',					 /* tile */
+ 					 tile_Human,			 /* type */
+@@ -790,7 +788,7 @@
+ 					 2, 3
+ 					);
+ 
+-	x = SetupMonster("town guard",			/* name */
++	SetupMonster("town guard",			/* name */
+ 					 "the ", "a ",
+ 					 '@',					 /* tile */
+ 					 tile_TownGuard,		 /* type */
+@@ -805,7 +803,7 @@
+ 					);
+ 
+ 
+-	x = SetupMonster("kobold",				/* name */
++	SetupMonster("kobold",				/* name */
+ 					 "the ", "a ",
+ 					 'k',					 /* tile */
+ 					 tile_Kobold,			 /* type */
+@@ -819,7 +817,7 @@
+ 					 2, 3
+ 					);
+ 
+-	x = SetupMonster("kobold chief",		/* name */
++	SetupMonster("kobold chief",		/* name */
+ 					 "the ", "a ",
+ 					 'k',					 /* tile */
+ 					 tile_KoboldChief,		 /* type */
+@@ -833,7 +831,7 @@
+ 					 3, 3
+ 					);
+ 
+-	x = SetupMonster("orc",					/* name */
++	SetupMonster("orc",					/* name */
+ 					 "an ", "an ",
+ 					 'o',					 /* tile */
+ 					 tile_Orc,				 /* type */
+@@ -847,7 +845,7 @@
+ 					 3, 4
+ 					);
+ 
+-	x = SetupMonster("orc chief",			/* name */
++	SetupMonster("orc chief",			/* name */
+ 					 "an ", "an ",
+ 					 'o',					 /* tile */
+ 					 tile_OrcChief,			 /* type */
+@@ -861,7 +859,7 @@
+ 					 3, 4
+ 					);
+ 
+-	x = SetupMonster("David Bowie",
++	SetupMonster("David Bowie",
+ 					 "", "",
+ 					 '@',					 /* tile */
+ 					 tile_DavidBowie,		 /* type */
+@@ -875,7 +873,7 @@
+ 					 4, 5
+ 					);
+ 
+-	x = SetupMonster("Tsurugi the street fighter",
++	SetupMonster("Tsurugi the street fighter",
+ 					 "", "",
+ 					 '@',					/* tile */
+ 					 tile_Tsurugi,			/* type */
+@@ -889,7 +887,7 @@
+ 					 5, 5
+ 					);
+ 
+-	x = SetupMonster("giant rat",				/* name */
++	SetupMonster("giant rat",				/* name */
+ 					 "the ", "a ",
+ 					 'r',					 /* tile */
+ 					 tile_GiantRat,			 /* type */
+@@ -904,7 +902,7 @@
+ 					);
+ 
+ 
+-	x = SetupMonster("ogre",				/* name */
++	SetupMonster("ogre",				/* name */
+ 					 "the ", "an ",
+ 					 'o',					 /* tile */
+ 					 tile_Ogre,			 /* type */
+@@ -918,7 +916,7 @@
+ 					 3, 3
+ 					);
+ 
+-	x = SetupMonster("troll",				/* name */
++	SetupMonster("troll",				/* name */
+ 					 "the ", "a ",
+ 					 't',					 /* tile */
+ 					 tile_Troll,			 /* type */
+@@ -932,7 +930,7 @@
+ 					 2, 3
+ 					);
+ 
+-	x = SetupMonster("wight",				/* name */
++	SetupMonster("wight",				/* name */
+ 					 "the ", "a ",
+ 					 'w',					 /* tile */
+ 					 tile_Wight,			 /* type */
+@@ -946,7 +944,7 @@
+ 					 3, 3
+ 					);
+ 
+-	x = SetupMonster("skeleton",			/* name */
++	SetupMonster("skeleton",			/* name */
+ 					 "the ", "a ",
+ 					 's',					 /* tile */
+ 					 tile_Skeleton,			 /* type */
+--- a/inventory.c
++++ b/inventory.c
+@@ -229,18 +229,8 @@
+ 
+ static void ItemRemoveBody(Actor *a)
+ {
+-	char *x;
+-
+ 	if (a->item_body != -1)
+ 	{
+-
+-		if ((a->items[a->item_body].flags & ITEM_FLAGS_NEEDS_ID) == ITEM_FLAGS_NEEDS_ID)
+-			x = itypes[a->items[a->item_body].type];
+-		else
+-			x = a->items[a->item_body].name;
+-
+-		/* if(a == GetPlayer())
+-		 _say("You remove the %s", x); */
+ 
+ 		SubItemAttributes(GetPlayer(), &a->items[a->item_body]);
+ 		a->item_body = -1;
+@@ -249,18 +239,8 @@
+ 
+ static void ItemRemoveHead(Actor *a)
+ {
+-	char *x;
+-
+ 	if (a->item_head != -1)
+ 	{
+-		if ((a->items[a->item_head].flags & ITEM_FLAGS_NEEDS_ID) == ITEM_FLAGS_NEEDS_ID)
+-			x = itypes[a->items[a->item_head].type];
+-		else
+-			x = a->items[a->item_head].name;
+-
+-		/* if( a == GetPlayer() )
+-		 _say("You remove the %s", x); */
+-
+ 		SubItemAttributes(a, &a->items[a->item_head]);
+ 		a->item_head = -1;
+ 	}
+@@ -268,17 +248,8 @@
+ 
+ static void ItemRemoveLeftHand(Actor *a)
+ {
+-	char *x;
+ 	if (a->item_left_hand != -1)
+ 	{
+-		if ((a->items[a->item_left_hand].flags & ITEM_FLAGS_NEEDS_ID) == ITEM_FLAGS_NEEDS_ID)
+-			x = itypes[a->items[a->item_left_hand].type];
+-		else
+-			x = a->items[a->item_left_hand].name;
+-
+-		/* if( a == GetPlayer())
+-		 _say("You stow the %s", x); */
+-
+ 		// remove selected spell when removing spellbook
+ 		if (a->items[a->item_left_hand].type == itm_BookOrScroll)
+ 		{
+@@ -298,18 +269,8 @@
+ 
+ static void ItemRemoveRightHand(Actor *a)
+ {
+-	char *x;
+-
+ 	if (GetPlayer()->item_right_hand != -1)
+ 	{
+-		if ((a->items[a->item_right_hand].flags & ITEM_FLAGS_NEEDS_ID) == ITEM_FLAGS_NEEDS_ID)
+-			x = itypes[a->items[a->item_right_hand].type];
+-		else
+-			x = a->items[a->item_right_hand].name;
+-
+-		/* if(a == GetPlayer())
+-		 _say("You stow the %s", x); */
+-
+ 		// remove selected spell when removing spellbook
+ 		if (a->items[a->item_right_hand].type == itm_BookOrScroll)
+ 		{
+@@ -329,40 +290,19 @@
+ 
+ static void ItemWearHead(Actor *a, int item_slot)
+ {
+-	char *x;
+-
+ 	a->item_head = item_slot;
+-	if ((a->items[item_slot].flags & ITEM_FLAGS_NEEDS_ID) == ITEM_FLAGS_NEEDS_ID)
+-		x = itypes[a->items[item_slot].type];
+-	else
+-		x = a->items[item_slot].name;
+-
+-	/* if( a == GetPlayer())
+-	 _say("You wear the %s", x); */
+-
+ 	AddItemAttributes(a, &a->items[item_slot]);
+ }
+ 
+ static void ItemWearBody(Actor *a, int item_slot)
+ {
+-	char *x;
+-
+ 	a->item_body = item_slot;
+ 
+-	if ((a->items[item_slot].flags & ITEM_FLAGS_NEEDS_ID) == ITEM_FLAGS_NEEDS_ID)
+-		x = itypes[a->items[item_slot].type];
+-	else
+-		x = a->items[item_slot].name;
+-
+-	/* if(a == GetPlayer())
+-	 _say("You wear the %s", x); */
+-
+ 	AddItemAttributes(a, &a->items[item_slot]);
+ }
+ 
+ static void ItemWearLeftHand(Actor *a, int item_slot)
+ {
+-	char *x;
+ 	struct item_info *ii;
+ 
+ 	ii = GetptrItemInfo(&a->items[item_slot], ii_Hands);
+@@ -375,28 +315,11 @@
+ 	if (ii != NULL && ii->si.v.val == 2)
+ 		a->item_right_hand = item_slot;
+ 
+-	if ((a->items[item_slot].flags & ITEM_FLAGS_NEEDS_ID) == ITEM_FLAGS_NEEDS_ID)
+-		x = itypes[a->items[item_slot].type];
+-	else
+-		x = a->items[item_slot].name;
+-
+-	if (ii != NULL && ii->si.v.val == 2)
+-	{
+-		/* if(a == GetPlayer())
+-		 _say("You wield the %s with two hands", x); */
+-	}
+-	else
+-	{
+-		/* if(a == GetPlayer())
+-		 _say("You wield the %s", x); */
+-	}
+-
+ 	AddItemAttributes(a, &a->items[item_slot]);
+ }
+ 
+ static void ItemWearRightHand(Actor *a, int item_slot)
+ {
+-	char *x;
+ 	struct item_info *ii;
+ 
+ 	ii = GetptrItemInfo(&a->items[item_slot], ii_Hands);
+@@ -408,22 +331,6 @@
+ 
+ 	if (ii != NULL && ii->si.v.val == 2)
+ 		a->item_left_hand = item_slot;
+-
+-	if ((a->items[item_slot].flags & ITEM_FLAGS_NEEDS_ID) == ITEM_FLAGS_NEEDS_ID)
+-		x = itypes[a->items[item_slot].type];
+-	else
+-		x = a->items[item_slot].name;
+-
+-	if (ii != NULL && ii->si.v.val == 2)
+-	{
+-		/* if(a == GetPlayer())
+-		 _say("You wield the %s with two hands", x); */
+-	}
+-	else
+-	{
+-		/* if(a == GetPlayer())
+-		 _say("You wield the %s", x); */
+-	}
+ 
+ 	AddItemAttributes(a, &a->items[item_slot]);
+ }
+--- a/pcode.c
++++ b/pcode.c
+@@ -406,11 +406,10 @@
+ 	mHand q;
+ 
+ 	struct dungeon_thing *dt;
+-	struct dungeon_item *di;
+ 
+ 	q = mh_malloc(sizeof(struct dungeon_thing));
+ 	dt = mh_ptr(q);
+-	di = mh_ptr(item);
++	mh_ptr(item);
+ 
+ 	dt->row = row;
+ 	dt->col = col;
+@@ -426,11 +425,10 @@
+ 	mHand q;
+ 
+ 	struct dungeon_thing *dt;
+-	struct dungeon_item *di;
+ 
+ 	q = mh_malloc(sizeof(struct dungeon_thing));
+ 	dt = mh_ptr(q);
+-	di = mh_ptr(item);
++	mh_ptr(item);
+ 
+ 	dt->row = row;
+ 	dt->col = col;
+--- a/shopping.c
++++ b/shopping.c
+@@ -91,8 +91,6 @@
+ 	//int j;
+ 	//int flag;
+ 
+-	int item_type;
+-
+ 	mHand lstX;
+ 
+ 	if (shopnum == shop_darren)
+@@ -169,7 +167,6 @@
+ 
+ 	row = getrow();
+ 	key = 0;
+-	item_type = 0;
+ 
+ 	while (key != 'l')
+ 	{
+@@ -319,7 +316,6 @@
+ 
+ 	int i;
+ 	int j;
+-	int row;
+ 	char lkeys[32 + 1];
+ 	Uint32 key;
+ 	char *fn;
+@@ -354,7 +350,6 @@
+ 			}
+ 		}
+ 
+-		row = 2;
+ 		EraseFromToNoFlip(2, getmaxrow() - 1);
+ 		setcursor(2, 0);
+ 
+@@ -479,7 +474,7 @@
+ 								}
+ 							}
+ 
+-							printNoFlip("\nPress {Space} to continue.\n", GetPlayer()->items[i].name, fn);
++							printNoFlip("\nPress {Space} to continue.\n");
+ 							DoFrame();
+ 							gkey(" ");
+ 							j = 1;
+@@ -570,7 +565,6 @@
+ 	int litems[MAX_ITEMS];
+ 	char lkeys[MAX_ITEMS + 2];
+ 	Uint32 key;
+-	int row;
+ 	int i, j;
+ 	char *fn;
+ 	int sell_count;
+@@ -596,7 +590,6 @@
+ 		}
+ 	}
+ 
+-	row = 2;
+ 	EraseFromToNoFlip(2, getmaxrow() - 1);
+ 	setcursor(2, 0);
+ 
+--- a/spell.c
++++ b/spell.c
+@@ -516,8 +516,6 @@
+ 	int draw_offset_col, draw_offset_row;
+ 	int p1, p2;
+ 
+-	struct dungeon_tile *map;
+-
+ 	mHand h = HANDLE_FREE;
+ 
+ 	int rr1, rr2, cc1, cc2;
+@@ -560,7 +558,7 @@
+ 	p2 = (draw_offset_col - quad_col + cc1);
+ 
+ 	// need to convert to screen co-ords...
+-	map = mh_ptr( GetCurrentLevel()->mapx );
++	mh_ptr( GetCurrentLevel()->mapx );
+ 
+ 	/* horizontal line */
+ 	if (rr1 == rr2)
+@@ -1564,7 +1562,6 @@
+ 			int spell_caster_immune_on_casting;
+ 
+ 			// only used for target monster
+-			Actor *target;
+ 			struct dungeon_thing *dt;
+ 
+ 			void (*draw_callback)(int row, int col, int dist_from_target);
+@@ -1716,7 +1713,7 @@
+ 			// act opon data!
+ 
+ 			dt = GetTargetObj(ct);
+-			target = mh_ptr(ct);
++			mh_ptr(ct);
+ 
+ 			if ( CalcTargetRange(ct) > spell_range)
+ 			{
+@@ -1763,8 +1760,6 @@
+ 					{
+ 						sp_adj_tlife = sp_adj_tlife - GetAC(d->a);
+ 						sp_adj_tlife *= -1;
+-
+-						//LogWrite("adjust target life by %i (now %i)\n", spell_adj_target_life, GetLife(target) + spell_adj_target_life);
+ 
+ 						if (d->a == caster)
+ 						{
+--- a/help.c
++++ b/help.c
+@@ -28,11 +28,9 @@
+ 
+ static void HelpFooter(void)
+ {
+-	int key;
+-
+ 	printNoFlip("\n\n\t{Space} to continue\n");
+ 	DoFrame();
+-	key = gkey(" ");
++	gkey(" ");
+ }
+ 
+ 
+--- a/map01.c
++++ b/map01.c
+@@ -118,7 +118,6 @@
+ {
+ 	struct map01_UserData *data;
+ 
+-	Actor *a;
+ 	int row, col;
+ 	int c;
+ 
+@@ -151,11 +150,11 @@
+ 
+ 		if (xrnd(10) == 1)
+ 		{
+-			a = CreateKoboldChief(row, col, mode_AttackPlayer);
++			CreateKoboldChief(row, col, mode_AttackPlayer);
+ 		}
+ 		else
+ 		{
+-			a = CreateKobold(row, col, mode_AttackPlayer);
++			CreateKobold(row, col, mode_AttackPlayer);
+ 		}
+ 		c++;
+ 	}
+@@ -165,13 +164,10 @@
+ 
+ static void CreateSomeGiantRats(void)
+ {
+-	struct map01_UserData *data;
+-
+-	Actor *a;
+ 	int row, col;
+ 	int c;
+ 
+-	data = GetUserData();
++	GetUserData();
+ 
+ 	row = -1;
+ 	c = 0;
+@@ -190,7 +186,7 @@
+ 				row = -1;
+ 		}
+ 
+-		a = CreateGiantRat(row, col, mode_AttackPlayer);
++		CreateGiantRat(row, col, mode_AttackPlayer);
+ 
+ 		c++;
+ 	}
+@@ -202,7 +198,6 @@
+ {
+ 	struct map01_UserData *data;
+ 
+-	Actor *a;
+ 	int row, col;
+ 	int c;
+ 
+@@ -233,11 +228,11 @@
+ 
+ 		if (xrnd(10) == 1)
+ 		{
+-			a = CreateOrcChief(row, col, mode_AttackPlayer);
++			CreateOrcChief(row, col, mode_AttackPlayer);
+ 		}
+ 		else
+ 		{
+-			a = CreateOrc(row, col, mode_AttackPlayer);
++			CreateOrc(row, col, mode_AttackPlayer);
+ 		}
+ 		c++;
+ 	}
+@@ -283,10 +278,7 @@
+ 	int row, col;
+ 	Level *l;
+ 
+-	struct map01_UserData *data;
+-
+-
+-	data = GetUserData();
++	GetUserData();
+ 
+ 	l = GetCurrentLevel();
+ 
+@@ -414,7 +406,6 @@
+ 
+ static void map01_event_monster_dies(void)
+ {
+-	Actor *a;
+ 	int row;
+ 	int col;
+ 
+@@ -457,16 +448,16 @@
+ 				if (xrnd(100) >= 75)
+ 				{
+ 					if (xrnd(10) == 1)
+-						a = CreateOrcChief(row, col, mode_AttackPlayer);
++						CreateOrcChief(row, col, mode_AttackPlayer);
+ 					else
+-						a = CreateOrc(row, col, mode_AttackPlayer);
++						CreateOrc(row, col, mode_AttackPlayer);
+ 				}
+ 				else
+ 				{
+ 					if (xrnd(10) == 1)
+-						a = CreateKoboldChief(row, col, mode_AttackPlayer);
++						CreateKoboldChief(row, col, mode_AttackPlayer);
+ 					else
+-						a = CreateKobold(row, col, mode_AttackPlayer);
++						CreateKobold(row, col, mode_AttackPlayer);
+ 				}
+ 			}
+ 			break;
+--- a/options.c
++++ b/options.c
+@@ -1,5 +1,6 @@
+ #include "sdlrl_head.h"
+ #include "ini.h"
++#include <errno.h>
+ 
+ static void LoadKeyBindings(INIFILE *inf)
+ {
+@@ -65,10 +66,24 @@
+ 		strcat(fpath, config_name);
+ 	}
+ 
++	errno = 0;
+ 	inf = INI_load(fpath);
++	if (inf == NULL && errno != ENOENT)
++	{
++		LogError("Cannot read configuration %s: %s\n", fpath, strerror(errno));
++		exit(EXIT_FAILURE);
++	}
+ 
+ 	if (inf == NULL)
++	{
++		errno = 0;
+ 		inf = INI_load("config.ini");
++		if (inf == NULL && errno != ENOENT)
++		{
++			LogError("Cannot read configuration config.ini: %s\n", strerror(errno));
++			exit(EXIT_FAILURE);
++		}
++	}
+ 
+ 	no_ini_file = 0;
+ 	if (inf != NULL)
+@@ -130,7 +145,7 @@
+ 	}
+ 	else
+ 	{
+-		LogError("No ini file found\n");
++		LogInfo("No optional configuration found; using built-in defaults.\n");
+ 		no_ini_file = 1;
+ 	}
+ 
+--- a/ini.c
++++ b/ini.c
+@@ -1,5 +1,6 @@
+ #include "sdlrl_head.h"
+ #include "ini.h"
++#include <errno.h>
+ 
+ /*
+ TODO : duplicate items/groups
+@@ -205,7 +206,20 @@
+ 	dlist_init(f->lstGroups, &FreeIniGroup);
+ 
+ 	INI_parse(fp, f);
+-	fclose(fp);
++	if (ferror(fp))
++	{
++		fclose(fp);
++		INI_unload(f);
++		errno = EIO;
++		return NULL;
++	}
++	if (fclose(fp) != 0)
++	{
++		int error = errno;
++		INI_unload(f);
++		errno = error;
++		return NULL;
++	}
+ 
+ 	return f;
+ }

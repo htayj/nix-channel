@@ -1,0 +1,115 @@
+Restore the exact upstream libfov grant omitted from the game tarball.
+Keep provenance paired with source and installed documentation.
+
+--- /dev/null
++++ b/COPYING.libfov
+@@ -0,0 +1,20 @@
++Copyright (c) 2006 Greg McIntyre
++All rights reserved.
++
++Permission is hereby granted, free of charge, to any person obtaining a copy of
++this software and associated documentation files (the "Software"), to deal in
++the Software without restriction, including without limitation the rights to
++use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
++of the Software, and to permit persons to whom the Software is furnished to do
++so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+--- /dev/null
++++ b/PROVENANCE.txt
+@@ -0,0 +1,57 @@
++Cracks and Crevices 0.5 (build 757) provenance
++==============================================
++
++Upstream game source
++--------------------
++Original URL: https://redmine.bloodycactus.com/attachments/download/32/cracks_and_crevices-0.5.tar.bz2
++Retrieved URL (Wayback snapshot): https://web.archive.org/web/20150804175538if_/https://redmine.bloodycactus.com/attachments/download/32/cracks_and_crevices-0.5.tar.bz2
++Size: 121192 bytes
++MD5: dd6e27a5bfea81549c94d52c12b9682e
++SHA256: a00cf6ab0a189673fe152f9325b14c1a6b6a531a8510d1cc321c44ccdeb9fb66
++Version: 0.5 (source VersionString v0.05/0757; version.c:12-29, docs/readme.txt:1, Makefile:2)
++
++Recovered libfov archive (fov.c/fov.h reference Greg McIntyre COPYING, omitted
++from the game tarball)
++---------------------------------------------------------------------------
++URL: https://storage.googleapis.com/google-code-archive-source/v2/code.google.com/libfov/source-archive.zip
++SHA256: 7dfc0ff6b53ef6002e5ff072807e1f26e72f39a5bef2ef9ed6ee7651881d3586
++License member: libfov/trunk/COPYING
++Member SHA256: 52aff126c6c7d33284e2e8fb9ff29e05eb03aff8ded0cd7f0914086b6fb513ca
++The COPYING member is MIT (copyright (c) 2006 Greg McIntyre); the libfov
++ChangeLog dates the license change from BSD to MIT at 2007-09-03. The full
++text is shipped as COPYING.libfov in source and licenses/COPYING.libfov when installed.
++
++Nature of source used
++---------------------
++The vendored libfov sources carry the same copyright, API, and algorithm as the
++recovered upstream libfov archive but include local edits; they are NOT
++byte-identical to upstream. The game itself is derived from the released
++cracks_and_crevices-0.5 source described above.
++
++License coverage
++----------------
++- The project as a whole: docs/readme.txt:4-5 releases the project under the
++  GNU General Public License version 2; docs/COPYING supplies the GPL2 text.
++  This is a GPLv2 grant, not an explicit "or later" grant.
++- MT19937 (random_mt.c:10-38): BSD 3-clause redistribution grant by Makoto
++  Matsumoto and Takuji Nishimura, 1997-2002. When installed, the entire
++  original notice must be reproduced separately; the project GPL2 COPYING is
++  not that grant.
++- MEMWATCH (memwatch.c:3-26, memwatch.h): GPL 2 or later, Johan Lindh. The
++  bundled release object does not activate MEMWATCH; its notice is retained
++  with the source.
++- Fonts (font_8x16.inc, font_12x16.inc, font_14x24.inc, embedded PCX
++  payloads): no per-file provenance or license notice exists in the project.
++  Distribution is retained under the project-wide GPLv2 statement, which
++  supports distribution of the author's project contents without proving
++  outside origin. No claim of author-drawn origin is made here.
++- libfov: separate MIT notice, see above.
++
++Runtime state layout
++--------------------
++The game resolves its state directory at runtime: it uses the absolute
++XDG_STATE_HOME value when set, otherwise falls back to $HOME/.local/state.
++Within that state directory the "cracks-and-crevices" subdirectory holds the
++game's config, save.bin, scores, and chardump.txt files. HOME itself is never
++modified. Scores are kept per-user in the state directory; the game does not
++use a shared /var/games location.
+--- a/fov.c
++++ b/fov.c
+@@ -1,6 +1,6 @@
+ /*
+  * Copyright (C) 2006, Greg McIntyre
+- * All rights reserved. See the file named COPYING in the distribution
++ * All rights reserved. See the file named COPYING.libfov in the distribution
+  * for more details.
+  */
+ 
+--- a/fov.h
++++ b/fov.h
+@@ -1,6 +1,6 @@
+ /*
+  * Copyright (C) 2006-2007, Greg McIntyre. All rights reserved. See the file
+- * named COPYING in the distribution for more details.
++ * named COPYING.libfov in the distribution for more details.
+  */
+ 
+ /**
+@@ -13,7 +13,7 @@
+  *
+  * \section copyright Copyright
+  *
+- * \verbinclude COPYING
++ * \verbinclude COPYING.libfov
+  *
+  * \section thanks Thanks
+  *
