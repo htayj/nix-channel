@@ -1,0 +1,16 @@
+
+/* Use the full window for add-on management. */
+:root .cf-app {
+  --aside-width: 0px !important;
+  grid-template-columns: [sidenav] 64px [main] minmax(0, 1fr) [aside] 0px !important;
+}
+
+:root .curseforge-ad,
+:root .ow_ad_container,
+:root .pixelforge-skin-aside,
+:root .fantasyforge-skin-aside,
+:root .lifeforge-skin-aside,
+:root .halloween-skin-aside,
+:root .game-background {
+  display: none !important;
+}
