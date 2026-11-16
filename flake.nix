@@ -8,14 +8,54 @@
   # the QML module matches consumers' Qt.
   inputs.m3shapes.url = "github:soramanew/m3shapes/32ad9ce328bb77ed349b40a3be10ee9ea610b8ab";
   inputs.m3shapes.inputs.nixpkgs.follows = "nixpkgs";
+  # Upstream ships its own clj-nix packaging. Keep its nixpkgs pin: the offline
+  # build resolves the Clojure release recorded in upstream's deps-lock.json.
+  inputs.eca.url = "github:editor-code-assistant/eca/52b6f015b3857d60920f7edbe9ed5692db0ba57d";
 
-  outputs = { self, nixpkgs, autolith, m3shapes, ... }:
+  outputs = { self, nixpkgs, autolith, eca, m3shapes, ... }:
     let
       # Start with the platform validated by this channel.
       systems = [ "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
+      # The JVM build of tag 0.154.0, which upstream's flake names eca-DEV. The
+      # source stays upstream's pinned tree; only the name gains the version.
+      # The GraalVM native image is not exported.
+      ecaPackage = system: eca.packages.${system}.eca-jdk.overrideAttrs (old: {
+        version = "0.154.0";
+        __intentionallyOverridingVersion = true;
+        meta = old.meta // {
+          description = "Editor-agnostic code assistant server";
+          longDescription = ''
+            ECA provides an editor-agnostic JSON-RPC code assistant server and
+            CLI.  Start it with `eca server` from an editor client.  Provider
+            credentials, network access, model services, plugins and MCP
+            servers are runtime concerns of the user.
+          '';
+          homepage = "https://eca.dev";
+          # ECA is Apache-2.0.  Its uberjar bundles Clojure libraries (EPL-1.0),
+          # Jetty and the Servlet API (EPL-2.0 or Apache-2.0), MIT and
+          # BSD-2-Clause code, and the JAXB and Activation APIs (CDDL-1.1 or
+          # GPL-2.0 with the Classpath exception).  Javassist is used under its
+          # Apache-2.0 alternative.
+          license = with nixpkgs.lib.licenses; [
+            asl20 epl10 epl20 mit bsd2
+            {
+              spdxId = "CDDL-1.1";
+              shortName = "cddl11";
+              fullName = "Common Development and Distribution License 1.1";
+              url = "https://spdx.org/licenses/CDDL-1.1.html";
+              free = true;
+              redistributable = true;
+            }
+          ];
+          # Compiled here from source; the Maven dependencies are upstream jars.
+          sourceProvenance = with nixpkgs.lib.sourceTypes; [ fromSource binaryBytecode ];
+          platforms = systems;
+        };
+      });
       packageSet = system: {
         autolith = autolith.packages.${system}.default;
+        eca = ecaPackage system;
         m3shapes = m3shapes.packages.${system}.m3shapes;
       };
       # Channel-maintained definitions, built against the consumer's package set.
@@ -216,7 +256,7 @@
         in {
             inherit (self.packages.${system}) acehack affect agduria aiwnios aiwnios-bytecode amstelvar apout aquarium-arena aquesttoofar atarist-font atlas-warriors atrogue autolith avanor axmud azurra-gtk-theme bcrawl bell-labs-rogue7 bell-museum blincolnlights bloatcrawl2 gnollcrawl gooncrawl gnollhack bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop city-of-the-condemned clojure-roguelike computer-builder corerl cotd cracks-and-crevices crashrun cryptrover curseforge dec-fonts dhack diabaig dicom2mesh dnethack dorxng-mcp dynahack dragonslayer dungeon-monkey-unlimited dungeonminder durthang dwarftown emacs-chatgpt-el emacs-cl emacs-emigo emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp encircled escape-from-lab-42 everything-is-fodder evilhack faangband farmingrl fiqhack for-roguelike freelarn
             gearhead gearhead2 genera-fonts-latin genera-fonts-symbols go-mud god-of-change godisc goblins-lot grippy-socks gruesome grunthack hack hackem hellcrawl hunger-games hydra-slayer image-tape itstar ivory-key kbredir kbtin kildclient kimchi kmuddy ks10-udis lbforth letter-hunt liveonce liquid lispy-rogue ludviglundgren-qbittorrent-cli lyntin manna-cadet martins-dungeon-bash meta-typing mmapper modus mushtato narwharl nitrohack nlarn node-unrs-resolver notion-river nrl-text-to-phoneme obumbrata ocaml-irc-client ocaml-irc-client-unix ocaml-irc-client-lwt ocaml-irc-client-lwt-ssl oh-my-opencode-slim-companion pdp10-gcc pdp10-its-disassembler pdp10-suppty pdp10-xpl-pdp-10 pdp11 pdp6 persephil plomrogue potato pycat qbcl raelives rapidbrogue rouge ruby-memoist ruby-sax-machine savescummer secretpathway sbcl-cl-libheif sbcl-cl-libtiff sewer-massacre shadow-over-darkmoor shamogu six-two-one slashem splicehack-rewrite sporkhack srogue stoat-soup
-            tapeutils tassh terminaldrome tetraworld the-smiths-hand trebuchet trial-by-combat tui uc-explorer donk-messages-image vt05 wanderers wrogue xnethack you-can-datamosh-on-linux buzz-desktop openclaw-desktop rbw-vaultwarden m3shapes;
+            tapeutils tassh terminaldrome tetraworld the-smiths-hand trebuchet trial-by-combat tui uc-explorer donk-messages-image vt05 wanderers wrogue xnethack you-can-datamosh-on-linux buzz-desktop openclaw-desktop rbw-vaultwarden m3shapes eca;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
