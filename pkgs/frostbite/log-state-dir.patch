@@ -1,0 +1,28 @@
+Log4Qt opens the appenders configured in log.ini by their relative names, so
+the log files were looked up in the current directory and never created.
+Resolve relative names under the user state directory, where log rotation
+already expects them.
+
+--- a/log4qt/src/log4qt/fileappender.cpp
++++ b/log4qt/src/log4qt/fileappender.cpp
+@@ -235,7 +235,10 @@
+ 	{
+ 	    Q_ASSERT_X(mpFile == 0 && mpTextStream == 0, "FileAppender::openFile()", "Opening file without closing previous file");
+ 	    
+-        QFileInfo file_info(mFileName);
++        // Appenders configured from log.ini carry a relative name.
++        const QString file_name = QFileInfo(mFileName).isRelative()
++            ? FrostbitePaths::stateFile(mFileName) : mFileName;
++        QFileInfo file_info(file_name);
+ 	    QDir parent_dir = file_info.dir();
+ 	    if (!parent_dir.exists())
+ 	    {
+@@ -246,7 +249,7 @@
+ 	    }
+ 
+ 	    
+-        mpFile = new QFile(mFileName);
++        mpFile = new QFile(file_name);
+ 	    QFile::OpenMode mode = QIODevice::WriteOnly | QIODevice::Text;
+ 	    if (mAppendFile)
+ 	        mode |= QIODevice::Append;

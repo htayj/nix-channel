@@ -1,0 +1,518 @@
+This patch relocates mutable Frostbite configuration, profiles, logs, API
+settings, and snapshots to XDG user directories while retaining immutable
+resources in the package output.
+
+Upstream status: Not applicable; this is Guix packaging policy.
+
+diff --git a/deploy/common/client.ini b/deploy/common/client.ini
+index 051f74b..ead9041 100644
+--- a/deploy/common/client.ini
++++ b/deploy/common/client.ini
+@@ -1,3 +1,3 @@
+ [Profile]
+ name=frostbite
+-type=L
+\ No newline at end of file
++type=H
+diff --git a/deploy/common/scripts/lib/main.rb b/deploy/common/scripts/lib/main.rb
+index ca91d86..804c810 100644
+--- a/deploy/common/scripts/lib/main.rb
++++ b/deploy/common/scripts/lib/main.rb
+@@ -79,7 +79,9 @@ module API
+ 
+   module Client
+     def self.api_port
+-      File.open("#{File.dirname(__FILE__)}/../../api.ini", 'r') do |inFile|
++      api_settings = ENV.fetch('FROSTBITE_API_SETTINGS',
++                                File.expand_path('../../api.ini', __dir__))
++      File.open(api_settings, 'r') do |inFile|
+         inFile.each_line do |line|
+           return line.partition('=').last.to_i if line.start_with? "port"
+         end
+@@ -275,4 +277,4 @@ begin
+   Kernel.require @_file
+ rescue Exception => e
+   raise e
+-end
+\ No newline at end of file
++end
+diff --git a/gui/apisettings.cpp b/gui/apisettings.cpp
+index 473b84c..bb957fb 100644
+--- a/gui/apisettings.cpp
++++ b/gui/apisettings.cpp
+@@ -1,6 +1,7 @@
+ #include "apisettings.h"
++#include "frostbitepaths.h"
+ 
+-ApiSettings::ApiSettings() : QSettings(QApplication::applicationDirPath() + "/api.ini", QSettings::IniFormat) {
++ApiSettings::ApiSettings() : QSettings(FrostbitePaths::configFile("api.ini"), QSettings::IniFormat) {
+ }
+ 
+ void ApiSettings::setParameter(QString name, QVariant value) {
+diff --git a/gui/audio/audioplayer.cpp b/gui/audio/audioplayer.cpp
+index 4bbc9e1..8d1c7b6 100644
+--- a/gui/audio/audioplayer.cpp
++++ b/gui/audio/audioplayer.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "mainwindow.h"
+ #include "clientsettings.h"
++#include "frostbitepaths.h"
+ 
+ AudioPlayer::AudioPlayer(QObject *parent) : QObject(parent) {
+     mainWindow = (MainWindow*)parent;
+@@ -29,12 +30,12 @@ void AudioPlayer::loadAudio() {
+     QStringList filter;
+     filter << "*.wav";
+ 
+-    QDir myDir(QApplication::applicationDirPath()  + "/sounds");
++    QDir myDir(FrostbitePaths::resourceFile("sounds"));
+     fileList = myDir.entryList(filter, QDir::Files, QDir::Name);
+ 
+     for(QString fileName : fileList) {
+         QSoundEffect* effect = new QSoundEffect(this);
+-        effect->setSource(QUrl::fromLocalFile(QApplication::applicationDirPath() + "/sounds/" + fileName));
++        effect->setSource(QUrl::fromLocalFile(FrostbitePaths::resourceFile("sounds/" + fileName)));
+         sounds.insert(fileName, effect);
+     }
+ }
+@@ -53,4 +54,3 @@ void AudioPlayer::play(const QString& fileName) {
+ 
+ AudioPlayer::~AudioPlayer() {
+ }
+-
+diff --git a/gui/clientsettings.cpp b/gui/clientsettings.cpp
+index 0e4d556..3b9b4e2 100644
+--- a/gui/clientsettings.cpp
++++ b/gui/clientsettings.cpp
+@@ -1,4 +1,5 @@
+ #include "clientsettings.h"
++#include "frostbitepaths.h"
+ #include <QGlobalStatic>
+ 
+ Q_GLOBAL_STATIC(ClientSettingsInstance, uniqueInstance)
+@@ -7,7 +8,7 @@ ClientSettings* ClientSettings::getInstance() {
+     return uniqueInstance;
+ }
+ 
+-ClientSettings::ClientSettings() : QSettings(QApplication::applicationDirPath() + "/client.ini", QSettings::IniFormat) {
++ClientSettings::ClientSettings() : QSettings(FrostbitePaths::configFile("client.ini"), QSettings::IniFormat) {
+ }
+ 
+ void ClientSettings::setParameter(QString name, QVariant value) {
+@@ -30,16 +31,8 @@ bool ClientSettings::hasValue(QString value) {
+ 
+ QString ClientSettings::profilePath() {
+     QString profile = value("Profile/name", "").toString();
+-    QString type = value("Profile/type", "").toString();
+-
+-    if(!profile.isEmpty()) {        
+-        QDir dir;
+-        if(type == "H") {
+-            dir = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/profiles/" + profile);
+-        } else {
+-            dir = QDir(QApplication::applicationDirPath() + "/profiles/" + profile);
+-        }
+-
++    if(!profile.isEmpty()) {
++        QDir dir(FrostbitePaths::profilesDir() + "/" + profile);
+         if(dir.exists()) {
+             return dir.absolutePath() + "/";
+         }
+diff --git a/gui/defaultvalues.h b/gui/defaultvalues.h
+index c1de969..cb44bae 100755
+--- a/gui/defaultvalues.h
++++ b/gui/defaultvalues.h
+@@ -88,10 +88,12 @@
+ #define DOCK_TITLE_COMBAT "Combat"
+ #define DOCK_TITLE_DICTIONARY "Dictionary"
+ 
+-#define SCRIPT_ENTRY QApplication::applicationDirPath() + "/scripts/lib/main.rb"
++#include "frostbitepaths.h"
++
++#define SCRIPT_ENTRY FrostbitePaths::resourceFile("scripts/lib/main.rb")
+ #define SCRIPT_INTERPRETER "ruby"
+ #define SCRIPT_FILE_EXTENSION ".rb"
+-#define SCRIPT_PATH QApplication::applicationDirPath() + "/scripts/"
++#define SCRIPT_PATH FrostbitePaths::resourceFile("scripts/")
+ 
+ #define SCRIPT_LICH_LOCATION ""
+ #define SCRIPT_LICH_RUBY "ruby"
+diff --git a/gui/eauthservice.cpp b/gui/eauthservice.cpp
+index ea87195..d176e47 100644
+--- a/gui/eauthservice.cpp
++++ b/gui/eauthservice.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "clientsettings.h"
+ #include "authlogger.h"
++#include "frostbitepaths.h"
+ #include "tcpclient.h"
+ 
+ EAuthService::EAuthService(QObject *parent) : QObject(parent) {
+@@ -72,7 +73,7 @@ void EAuthService::verifySSL() {
+ }
+ 
+ void EAuthService::loadSslCertificate() {
+-    const QString serverCertPath(QApplication::applicationDirPath() + "/security/auth-service.pem");
++    const QString serverCertPath(FrostbitePaths::resourceFile("security/auth-service.pem"));
+     QList<QSslCertificate> serverCert = QSslCertificate::fromPath(serverCertPath, QSsl::Pem);
+     if(serverCert.isEmpty()) {
+         emit connectionWarning("WARNING: Unable to load auth service SSL certificate from " + serverCertPath + "; SSL verification turned off.");
+diff --git a/gui/frostbitepaths.h b/gui/frostbitepaths.h
+new file mode 100644
+index 0000000..9b00f65
+--- /dev/null
++++ b/gui/frostbitepaths.h
+@@ -0,0 +1,77 @@
++#ifndef FROSTBITEPATHS_H
++#define FROSTBITEPATHS_H
++
++#include <QCoreApplication>
++#include <QDir>
++#include <QFile>
++#include <QFileInfo>
++#include <QStandardPaths>
++#include <QString>
++
++namespace FrostbitePaths {
++
++inline QString resourceDir() {
++    const QString configured = qEnvironmentVariable("FROSTBITE_RESOURCE_DIR");
++    return configured.isEmpty() ? QCoreApplication::applicationDirPath() : configured;
++}
++
++inline QString resourceFile(const QString &name) {
++    return QDir(resourceDir()).filePath(name);
++}
++
++inline QString configDir() {
++    const QString path = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
++    QDir().mkpath(path);
++    return path;
++}
++
++inline QString stateDir() {
++    const QString path = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
++    QDir().mkpath(path);
++    return path;
++}
++
++inline QString configFile(const QString &name) {
++    const QString path = QDir(configDir()).filePath(name);
++    const QString defaultPath = resourceFile("config/" + name);
++    if (!QFile::exists(path) && QFile::exists(defaultPath))
++        QFile::copy(defaultPath, path);
++    return path;
++}
++
++inline bool copyDirectory(const QString &source, const QString &destination) {
++    QDir sourceDir(source);
++    if (!sourceDir.exists())
++        return false;
++
++    QDir().mkpath(destination);
++    foreach (const QFileInfo &entry,
++             sourceDir.entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries)) {
++        const QString target = QDir(destination).filePath(entry.fileName());
++        if (entry.isDir()) {
++            if (!copyDirectory(entry.absoluteFilePath(), target))
++                return false;
++        } else if (!QFile::exists(target) && !QFile::copy(entry.absoluteFilePath(), target)) {
++            return false;
++        }
++    }
++    return true;
++}
++
++inline QString profilesDir() {
++    const QString path = QDir(stateDir()).filePath("profiles");
++    if (!QDir(path).exists())
++        copyDirectory(resourceFile("profiles"), path);
++    QDir().mkpath(path);
++    return path;
++}
++
++inline QString stateFile(const QString &name) {
++    const QString path = QDir(stateDir()).filePath(name);
++    QDir().mkpath(QFileInfo(path).dir().absolutePath());
++    return path;
++}
++
++}
++
++#endif
+diff --git a/gui/main.cpp b/gui/main.cpp
+index ae80583..7659f4a 100644
+--- a/gui/main.cpp
++++ b/gui/main.cpp
+@@ -1,4 +1,5 @@
+ #include <guiapplication.h>
++#include "frostbitepaths.h"
+ #include "mainwindow.h"
+ 
+ #include "log4qt/logger.h"
+@@ -32,6 +33,8 @@ void handler(int sig) {
+ int main(int argc, char* argv[]) {
+     QCoreApplication::setApplicationVersion(QString(RELEASE_VERSION));
+     QCoreApplication::setApplicationName("Frostbite");
++    QCoreApplication::setOrganizationName("matoom");
++    QCoreApplication::setOrganizationDomain("github.com");
+ 
+     static const char ENV_VAR_QT_DEVICE_PIXEL_RATIO[] = "QT_DEVICE_PIXEL_RATIO";
+     if (!qEnvironmentVariableIsSet(ENV_VAR_QT_DEVICE_PIXEL_RATIO)
+@@ -55,9 +58,9 @@ int main(int argc, char* argv[]) {
+         exit(0);
+     }
+ 
+-    Log4Qt::PropertyConfigurator::configure(QApplication::applicationDirPath() + "/log.ini");
++    Log4Qt::PropertyConfigurator::configure(FrostbitePaths::resourceFile("log.ini"));
+ 
+-    QApplication::addLibraryPath(QApplication::applicationDirPath());
++    QApplication::addLibraryPath(FrostbitePaths::resourceDir());
+ 
+     MainWindow w;
+     w.show();
+diff --git a/gui/maps/mapreader.cpp b/gui/maps/mapreader.cpp
+index 8fd4a91..f2acb18 100644
+--- a/gui/maps/mapreader.cpp
++++ b/gui/maps/mapreader.cpp
+@@ -9,6 +9,7 @@
+ #include "maps/mapfacade.h"
+ #include "maps/mapdata.h"
+ #include "maps/mapdestination.h"
++#include "frostbitepaths.h"
+ 
+ #include "generalsettings.h"
+ #include "textutils.h"
+@@ -23,7 +24,7 @@ MapReader::MapReader(QObject* parent) : QObject(parent) {
+ 
+     mapData = new MapData(this);
+ 
+-    dir = QDir(QApplication::applicationDirPath() + "/maps");
++    dir = QDir(FrostbitePaths::resourceFile("maps"));
+ 
+     connect(this, SIGNAL(readyRead()), this, SLOT(initScenes()));
+ 
+diff --git a/gui/menuhandler.cpp b/gui/menuhandler.cpp
+index f7bfd3a..71aa37a 100644
+--- a/gui/menuhandler.cpp
++++ b/gui/menuhandler.cpp
+@@ -14,6 +14,7 @@
+ #include "scriptsettingsdialog.h"
+ #include "audio/volumecontroldialog.h"
+ #include "dict/dictionarydialog.h"
++#include "frostbitepaths.h"
+ #include "compass/compassview.h"
+ #include "toolbar/toolbar.h"
+ #include "tcpclient.h"
+@@ -219,10 +220,7 @@ void MenuHandler::lockWindows(QAction* action) {
+ void MenuHandler::loadProfilesMenu() {
+     QList<QPair<QString, QStringList>> profiles;
+ 
+-    QDir dir(QApplication::applicationDirPath() + "/profiles");
+-    profiles << qMakePair(QString("L"), dir.entryList(QDir::NoDotAndDotDot | QDir::Dirs, QDir::Name));
+-
+-    QDir homeDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/profiles");
++    QDir homeDir(FrostbitePaths::profilesDir());
+     profiles << qMakePair(QString("H"), homeDir.entryList(QDir::NoDotAndDotDot | QDir::Dirs, QDir::Name));
+ 
+     profilesMenu = new QMenu(mainWindow);
+@@ -294,4 +292,3 @@ MenuHandler::~MenuHandler() {
+     delete profileAddDialog;
+     delete profilesMenu;
+ }
+-
+diff --git a/gui/profileadddialog.cpp b/gui/profileadddialog.cpp
+index 8f0c8bb..b83470f 100644
+--- a/gui/profileadddialog.cpp
++++ b/gui/profileadddialog.cpp
+@@ -2,6 +2,7 @@
+ #include "ui_profileadddialog.h"
+ 
+ #include "clientsettings.h"
++#include "frostbitepaths.h"
+ 
+ ProfileAddDialog::ProfileAddDialog(QWidget *parent) : QDialog(parent), ui(new Ui::ProfileAddDialog) {
+     ui->setupUi(this);
+@@ -15,20 +16,12 @@ ProfileAddDialog::ProfileAddDialog(QWidget *parent) : QDialog(parent), ui(new Ui
+ }
+ 
+ void ProfileAddDialog::populate() {
+-    ui->locationSelect->addItem("User Home", 0);    
+-    ui->locationSelect->addItem("Local", 1);
+-    ui->locationSelect->setToolTip("User Home: " + QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/profiles/\n" +
+-                                   "Local: " + QApplication::applicationDirPath() + "/profiles/");
++    ui->locationSelect->addItem("User data", 0);
++    ui->locationSelect->setToolTip("User data: " + FrostbitePaths::profilesDir() + "/");
+ }
+ 
+ void ProfileAddDialog::createProfile() {
+-    QString folder;
+-    if(ui->locationSelect->currentData() == 0) {
+-        folder = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+-    } else {
+-        folder = QApplication::applicationDirPath();
+-    }
+-    folder += "/profiles/" + ui->lineEdit->text();
++    QString folder = FrostbitePaths::profilesDir() + "/" + ui->lineEdit->text();
+ 
+     if(!ui->lineEdit->text().isEmpty()) {
+         QDir().mkpath(folder);
+diff --git a/gui/script.cpp b/gui/script.cpp
+index fb07aef..9117ae9 100644
+--- a/gui/script.cpp
++++ b/gui/script.cpp
+@@ -3,6 +3,7 @@
+ #include "scriptservice.h"
+ #include "clientsettings.h"
+ #include "defaultvalues.h"
++#include "frostbitepaths.h"
+ 
+ Script::Script(QObject *parent) : QObject(parent), script_proc(new QProcess(this)) {
+     scriptService = (ScriptService*)parent;
+@@ -38,6 +39,9 @@ void Script::execute(QString fileName, QList<QString> userArgs) {
+     QStringList arguments;
+     arguments << path << file << userArgs;
+ 
++    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
++    environment.insert("FROSTBITE_API_SETTINGS", FrostbitePaths::configFile("api.ini"));
++    script_proc->setProcessEnvironment(environment);
+     script_proc->start(rubyPath, arguments, QProcess::Unbuffered | QProcess::ReadWrite);
+ }
+ 
+diff --git a/gui/shareddataservice.cpp b/gui/shareddataservice.cpp
+index 2485b58..4a70757 100644
+--- a/gui/shareddataservice.cpp
++++ b/gui/shareddataservice.cpp
+@@ -1,4 +1,5 @@
+ #include "shareddataservice.h"
++#include "frostbitepaths.h"
+ 
+ SharedDataService* SharedDataService::m_pInstance = NULL;
+ 
+@@ -19,7 +20,7 @@ bool SharedDataService::isLoaded() {
+ 
+ void SharedDataService::loadDataLib() {
+     dataLib = new QLibrary();
+-    dataLib->setFileName(QApplication::applicationDirPath() + "/shared");
++    dataLib->setFileName(FrostbitePaths::resourceFile("shared"));
+     loaded = dataLib->load();
+ 
+     addExpField = (AddExp)dataLib->resolve("setExpField");
+diff --git a/gui/snapshot.cpp b/gui/snapshot.cpp
+index 5151489..e39309d 100644
+--- a/gui/snapshot.cpp
++++ b/gui/snapshot.cpp
+@@ -1,4 +1,5 @@
+ #include "snapshot.h"
++#include "frostbitepaths.h"
+ #include "windowinterface.h"
+ #include "mainwindow.h"
+ 
+@@ -9,10 +10,10 @@ Snapshot::Snapshot(WindowInterface* window) : QObject() {
+ void Snapshot::save() {
+     window->getMainWindow()->appendHtml("<span class=\"echo\">Saving snapshot..</span>");
+ 
+-    QString path = QApplication::applicationDirPath() + "/snapshots/" +
++    QString path = FrostbitePaths::stateFile("snapshots/" +
+             window->getObjectName() + "_" +
+             QDate::currentDate().toString("yyyy-MM-dd") + "_" +
+-            QTime::currentTime().toString("hh-mm-ss") + ".html";
++            QTime::currentTime().toString("hh-mm-ss") + ".html");
+ 
+     QFile file(path);
+     file.open(QIODevice::WriteOnly | QIODevice::Text);
+diff --git a/log4qt/src/log4qt/dailyrollingfileappender.cpp b/log4qt/src/log4qt/dailyrollingfileappender.cpp
+index 98b5ab5..696bcc7 100644
+--- a/log4qt/src/log4qt/dailyrollingfileappender.cpp
++++ b/log4qt/src/log4qt/dailyrollingfileappender.cpp
+@@ -38,6 +38,7 @@
+ #include "log4qt/helpers/datetime.h"
+ #include "log4qt/layout.h"
+ #include "log4qt/loggingevent.h"
++#include <frostbitepaths.h>
+ #include <QApplication>
+ #include <QFileInfo>
+ 
+@@ -337,21 +338,13 @@ namespace Log4Qt
+         bool relative = info.isRelative();
+ 
+         QString target_file_name;
+-        if(relative) {
+-            target_file_name = QApplication::applicationDirPath() + "/" + file() + roll_over_suffix;
+-        } else {
+-            target_file_name = file() + roll_over_suffix;
+-        }
++        target_file_name = relative ? FrostbitePaths::stateFile(file() + roll_over_suffix) : file() + roll_over_suffix;
+ 
+         QFile f(target_file_name);
+         if (f.exists() && !removeFile(f)) return;
+ 
+         QString file_name;
+-        if(relative) {
+-            file_name = QApplication::applicationDirPath() + "/" + file();
+-        } else {
+-            file_name = file();
+-        }
++        file_name = relative ? FrostbitePaths::stateFile(file()) : file();
+ 
+         f.setFileName(file_name);
+         if (f.exists() && !renameFile(f, target_file_name)) return;
+diff --git a/log4qt/src/log4qt/fileappender.cpp b/log4qt/src/log4qt/fileappender.cpp
+index d37ae19..8e1b745 100644
+--- a/log4qt/src/log4qt/fileappender.cpp
++++ b/log4qt/src/log4qt/fileappender.cpp
+@@ -39,6 +39,7 @@
+ #include <QtCore/QTextCodec>
+ #include "log4qt/layout.h"
+ #include "log4qt/loggingevent.h"
++#include <frostbitepaths.h>
+ #include <guiapplication.h>
+ 
+ 
+@@ -80,7 +81,7 @@ namespace Log4Qt
+ 	    WriterAppender(pLayout, pParent),
+ 	    mAppendFile(false),
+ 	    mBufferedIo(true),
+-        mFileName(QApplication::applicationDirPath() + "/" + rFileName),
++        mFileName(FrostbitePaths::stateFile(rFileName)),
+ 	    mpFile(0),
+ 	    mpTextStream(0)
+ 	{
+@@ -94,7 +95,7 @@ namespace Log4Qt
+ 	    WriterAppender(pLayout, pParent),
+ 	    mAppendFile(append),
+ 	    mBufferedIo(true),
+-        mFileName(QApplication::applicationDirPath() + "/" + rFileName),
++        mFileName(FrostbitePaths::stateFile(rFileName)),
+ 	    mpFile(0),
+ 	    mpTextStream(0)
+ 	{
+@@ -109,7 +110,7 @@ namespace Log4Qt
+ 	    WriterAppender(pLayout, pParent),
+ 	    mAppendFile(append),
+ 	    mBufferedIo(buffered),
+-        mFileName(QApplication::applicationDirPath() + "/" + rFileName),
++        mFileName(FrostbitePaths::stateFile(rFileName)),
+ 	    mpFile(0),
+ 	    mpTextStream(0)
+ 	{
+@@ -234,7 +235,7 @@ namespace Log4Qt
+ 	{
+ 	    Q_ASSERT_X(mpFile == 0 && mpTextStream == 0, "FileAppender::openFile()", "Opening file without closing previous file");
+ 	    
+-        QFileInfo file_info(QApplication::applicationDirPath() + "/" + mFileName);
++        QFileInfo file_info(mFileName);
+ 	    QDir parent_dir = file_info.dir();
+ 	    if (!parent_dir.exists())
+ 	    {
+@@ -245,7 +246,7 @@ namespace Log4Qt
+ 	    }
+ 
+ 	    
+-        mpFile = new QFile(QApplication::applicationDirPath() + "/" + mFileName);
++        mpFile = new QFile(mFileName);
+ 	    QFile::OpenMode mode = QIODevice::WriteOnly | QIODevice::Text;
+ 	    if (mAppendFile)
+ 	        mode |= QIODevice::Append;

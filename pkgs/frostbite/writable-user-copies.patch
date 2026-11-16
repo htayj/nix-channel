@@ -1,0 +1,36 @@
+QFile::copy keeps the mode of its source, so the client settings and default
+profiles copied out of the read-only store on first use could not be changed
+afterwards.  Make the copies owner-writable.
+
+--- a/gui/frostbitepaths.h
++++ b/gui/frostbitepaths.h
+@@ -31,11 +31,19 @@
+     return path;
+ }
+ 
++// Files copied out of a read-only resource tree must stay editable.
++inline bool copyWritable(const QString &source, const QString &target) {
++    if (!QFile::copy(source, target))
++        return false;
++    QFile::setPermissions(target, QFile::permissions(target) | QFile::WriteOwner);
++    return true;
++}
++
+ inline QString configFile(const QString &name) {
+     const QString path = QDir(configDir()).filePath(name);
+     const QString defaultPath = resourceFile("config/" + name);
+     if (!QFile::exists(path) && QFile::exists(defaultPath))
+-        QFile::copy(defaultPath, path);
++        copyWritable(defaultPath, path);
+     return path;
+ }
+ 
+@@ -51,7 +59,7 @@
+         if (entry.isDir()) {
+             if (!copyDirectory(entry.absoluteFilePath(), target))
+                 return false;
+-        } else if (!QFile::exists(target) && !QFile::copy(entry.absoluteFilePath(), target)) {
++        } else if (!QFile::exists(target) && !copyWritable(entry.absoluteFilePath(), target)) {
+             return false;
+         }
+     }
