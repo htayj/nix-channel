@@ -11,8 +11,12 @@
   # Upstream ships its own clj-nix packaging. Keep its nixpkgs pin: the offline
   # build resolves the Clojure release recorded in upstream's deps-lock.json.
   inputs.eca.url = "github:editor-code-assistant/eca/52b6f015b3857d60920f7edbe9ed5692db0ba57d";
+  # Upstream ships its own packaging. Build it against the channel's nixpkgs so
+  # the embedded CPython is the one consumers already have.
+  inputs.mudpuppy.url = "github:mudpuppy-rs/mudpuppy/3199e83e6173df178f17906b721630d927789c87";
+  inputs.mudpuppy.inputs.nixpkgs.follows = "nixpkgs";
 
-  outputs = { self, nixpkgs, autolith, eca, m3shapes, ... }:
+  outputs = { self, nixpkgs, autolith, eca, m3shapes, mudpuppy, ... }:
     let
       # Start with the platform validated by this channel.
       systems = [ "x86_64-linux" ];
@@ -53,10 +57,52 @@
           platforms = systems;
         };
       });
+      # Upstream's package of the untagged commit pinned above, which its flake
+      # names plain "mudpuppy". The source and the Cargo.lock graph stay
+      # upstream's; the name gains a version and the licences are installed.
+      mudpuppyPackage = system: mudpuppy.packages.${system}.pup.overrideAttrs (old: rec {
+        pname = "mudpuppy";
+        version = "0.1.0-unstable-2025-12-14";
+        name = "${pname}-${version}";
+        __intentionallyOverridingVersion = true;
+        # Cargo links the locked crates statically, so ship their notices.
+        postInstall = (old.postInstall or "") + ''
+          install -Dm644 -t $out/share/doc/mudpuppy LICENSE README.md
+          for crate in "''${cargoDeps:?}"/*/; do
+            find "$crate" -maxdepth 1 -type f \
+              \( -iname 'LICEN[SC]E*' -o -iname 'COPYING*' -o -iname 'COPYRIGHT*' \
+                 -o -iname 'NOTICE*' -o -iname 'UNLICENSE*' \) \
+              -exec install -Dm644 -t \
+                "$out/share/doc/mudpuppy/third-party-licenses/$(basename "$crate")" {} +
+          done
+        '';
+        doInstallCheck = true;
+        installCheckPhase = ''
+          runHook preInstallCheck
+          HOME=$TMPDIR $out/bin/mudpuppy --version | grep -F 'mudpuppy 0.1.0'
+          test -n "$(find $out/share/doc/mudpuppy/third-party-licenses -type f -print -quit)"
+          runHook postInstallCheck
+        '';
+        meta = (old.meta or { }) // {
+          description = "Terminal MUD client with embedded Python scripting";
+          longDescription = ''
+            Mudpuppy is a terminal client for MUD, MUSH, MUX and MUCK games with
+            a Ratatui interface, Telnet negotiation, GMCP, plain TCP and rustls
+            TLS connections, aliases, triggers and Python scripting.  Scripts,
+            configuration and logs live in the per-user config and data
+            directories.
+          '';
+          homepage = "https://github.com/mudpuppy-rs/mudpuppy";
+          license = nixpkgs.lib.licenses.mit;
+          mainProgram = "mudpuppy";
+          platforms = systems;
+        };
+      });
       packageSet = system: {
         autolith = autolith.packages.${system}.default;
         eca = ecaPackage system;
         m3shapes = m3shapes.packages.${system}.m3shapes;
+        mudpuppy = mudpuppyPackage system;
       };
       # Channel-maintained definitions, built against the consumer's package set.
       localPackages = pkgs: {
@@ -264,7 +310,7 @@
         in {
             inherit (self.packages.${system}) acehack affect agduria aiwnios aiwnios-bytecode amstelvar apout aquarium-arena aquesttoofar atarist-font atlas-warriors atrogue autolith avanor axmud azurra-gtk-theme bcrawl bell-labs-rogue7 bell-museum blincolnlights bloatcrawl2 gnollcrawl gooncrawl gnollhack bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols cavechop city-of-the-condemned clojure-roguelike computer-builder corerl cotd cracks-and-crevices crashrun cryptrover curseforge dec-fonts dhack diabaig dicom2mesh dnethack dorxng-mcp dynahack dragonslayer dungeon-monkey-unlimited dungeonminder durthang dwarftown emacs-chatgpt-el emacs-cl emacs-emigo emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp encircled escape-from-lab-42 everything-is-fodder evilhack exalt faangband farmingrl fiqhack for-roguelike freelarn frostbite
             gearhead gearhead2 geminum-orbis genera-fonts-latin genera-fonts-symbols go-mud god-of-change godisc goblins-lot grippy-socks gruesome grunthack hack hackem hellcrawl hunger-games hydra-slayer image-tape infection itstar ivory-key kbredir kbtin kildclient kimchi kmuddy ks10-udis lbforth letter-hunt liveonce liquid lispy-rogue ludviglundgren-qbittorrent-cli lyntin manna-cadet martins-dungeon-bash meta-typing mmapper modus mushkin mushtato narwharl nitrohack nlarn node-unrs-resolver notion-river nrl-text-to-phoneme obumbrata ocaml-irc-client ocaml-irc-client-unix ocaml-irc-client-lwt ocaml-irc-client-lwt-ssl oh-my-opencode-slim-companion pdp10-gcc pdp10-its-disassembler pdp10-suppty pdp10-xpl-pdp-10 pdp11 pdp6 persephil plomrogue potato pycat qbcl raelives rapidbrogue rouge ruby-memoist ruby-sax-machine savescummer secretpathway sbcl-cl-libheif sbcl-cl-libtiff sewer-massacre shadow-over-darkmoor shamogu six-two-one slashem splicehack-rewrite sporkhack srogue stoat-soup
-            talmudifier tapeutils tassh terminaldrome tetraworld the-smiths-hand trebuchet trial-by-combat tui uc-explorer donk-messages-image vt05 wanderers wrogue xnethack you-can-datamosh-on-linux buzz-desktop openclaw-desktop rbw-vaultwarden m3shapes eca;
+            talmudifier tapeutils tassh terminaldrome tetraworld the-smiths-hand trebuchet trial-by-combat tui uc-explorer donk-messages-image vt05 wanderers wrogue xnethack you-can-datamosh-on-linux buzz-desktop openclaw-desktop rbw-vaultwarden m3shapes eca mudpuppy;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
