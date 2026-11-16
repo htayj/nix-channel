@@ -1,0 +1,100 @@
+--- a/talmudifier/talmudifier.py
++++ b/talmudifier/talmudifier.py
+@@ -1,8 +1,8 @@
+ from pathlib import Path
+ from typing import List
+-from json import load
+ from talmudifier.column import Column
+ from talmudifier.util import to_camelcase
++from talmudifier.runtime import load_recipe
+ import io
+ from typing import Optional
+ from talmudifier.pdf_writer import PDFWriter
+@@ -24,15 +24,11 @@
+         :param text_left: The markdown text of the left column.
+         :param text_center: The markdown text of the center column.
+         :param text_right: The markdown text of the right column.
+-        :param recipe_filename: The filename of the recipe, located in recipes/
++        :param recipe_filename: A caller recipe path or an installed recipe name.
+         """
+ 
+         # Read the recipe.
+-        recipe_path = Path(f"recipes/{recipe_filename}")
+-        if not recipe_path.exists():
+-            print(f"Couldn't find recipe: {recipe_filename}; using default.json instead.")
+-        with io.open(str(recipe_path.resolve()), "rt", encoding="utf-8") as f:
+-            self.recipe = load(f)
++        self.recipe = load_recipe(recipe_filename)
+ 
+         header_file = pkg_resources.resource_filename(__name__, "header.txt")
+ 
+--- a/talmudifier/pdf_writer.py
++++ b/talmudifier/pdf_writer.py
+@@ -1,12 +1,13 @@
+ from subprocess import run, PIPE, STDOUT
+ from pathlib import Path
+-from platform import system
+ import sys
+ from talmudifier.util import output_directory
++from talmudifier.runtime import tex_environment
+ 
+ 
+-def _run_xelatex(arguments):
+-    result = run(arguments, stdout=PIPE, stderr=STDOUT, text=True)
++def _run_xelatex(arguments, environment):
++    result = run(arguments, stdout=PIPE, stderr=STDOUT, text=True,
++                 env=environment)
+     if result.returncode:
+         sys.stderr.write(result.stdout)
+         for log in sorted(Path(output_directory).glob('*.log')):
+@@ -50,24 +51,16 @@
+         num_end = len([c for c in doc if c == "}"])
+         assert num_start == num_end, f"Unbalanced curly braces!\n\n{doc_raw}"
+ 
+-        p = system()
+-        # Generate the PDF.
+-        if p == "Linux" or p == "Darwin":
++        output = Path(output_directory).resolve()
++        output.mkdir(parents=True, exist_ok=True)
++        # Isolate child state without changing the caller's cwd or environment.
++        # Keep logs in Output so callers can retain diagnostics after failure.
++        with tex_environment() as (engine, environment):
+             _run_xelatex(
+-                ["xelatex",
+-                 "-interaction=nonstopmode", "-halt-on-error",
+-                 "-output-directory", str(Path(output_directory).resolve()),
+-                 "-jobname", filename, doc])
+-        elif p == "Windows":
+-            _run_xelatex(['xelatex.exe',
+-                  '-interaction=nonstopmode', '-halt-on-error',
+-                  '-output-directory',
+-                  str(Path(output_directory).resolve()),
+-                  '-job-name=' + filename,
+-                  doc])
+-        else:
+-            raise Exception(f"Platform not supported: {p}")
++                [engine, "-interaction=nonstopmode", "-halt-on-error",
++                 "-no-shell-escape", "-output-directory", str(output),
++                 "-jobname", filename, doc], environment)
+ 
+-        assert Path(output_directory).joinpath(filename + ".pdf").exists(), f"Failed to create: {filename}"
++        assert output.joinpath(filename + ".pdf").exists(), f"Failed to create: {filename}"
+ 
+         return doc_raw
+--- a/talmudifier/util.py
++++ b/talmudifier/util.py
+@@ -1,12 +1,8 @@
+-from pathlib import Path
+ import re
+ 
+ 
+-# Set and create the output directory.
+-output_directory = Path("Output")
+-if not output_directory.exists():
+-    output_directory.mkdir()
+-output_directory = str(output_directory.resolve())
++# Resolve against the caller's current directory when writing, not importing.
++output_directory = "Output"
+ 
+ 
+ def to_camelcase(s: str) -> str:
