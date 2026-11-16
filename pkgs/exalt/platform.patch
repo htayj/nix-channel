@@ -1,0 +1,1749 @@
+Port the original Exalt 0.3.0 platform boundary to Linux.
+
+Replace the Windows message loop with SDL2 events while retaining upstream
+ASCII/function-key values, five-window behavior and turn-based updates.
+Use POSIX filesystem operations and the system SQLite public header, and
+correct case-sensitive includes and the listener declaration.
+
+This patch is part of the Guix Linux port, not an upstream game release.
+
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	main.cpp
+  *
+@@ -17,12 +18,9 @@
+  *	(at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
+-// Enable memory leak detection
+-#ifdef _DEBUG
+-	#include "vld/vld.h"
+-#endif
+ 
+ #include "mainstate.h"
++#include <SDL.h>
+ 
+ 
+ /**
+@@ -53,18 +51,17 @@
+ 	Seed();
+ 
+ 
+-	// Initialize the font manager
+-	g_fontManager->Init();
+-
+-	// Register the terminal class
++	// Initialize SDL video and SDL_ttf before loading fonts.
+ 	if ( !Terminal::Register() )
+ 		return false;
++	g_fontManager->Init();
+ 
+ 	// Create the terminals
+ 	for ( int i = 0; i < TERM_COUNT; i++ ) {
+ 
+ 		g_terminal[ i ] = new Terminal( (TERM_ID)i );
+-		g_terminal[ i ]->Init( CoordI( 30, 30 ), DimI( 720, 420 ), i == TERM_ID_MAIN );
++		if ( !g_terminal[ i ]->Init( CoordI( 30, 30 ), DimI( 720, 420 ), i == TERM_ID_MAIN ) )
++			return false;
+ 	}
+ 
+ 	return true;
+@@ -72,33 +69,10 @@
+ 
+ 
+ 
+-#ifdef _DEBUG
+ /**
+- * @brief	The program entry point in debug mode.
+- *
+- * The main method initializes the application, then enters the main game loop. Windows messages are
+- * handled in each pass of the loop, then program control is passed off to the MainState. Once the game loop
+- * finishes cleaup on all globally allocated memory is performed.
+- *
+- * @return	Exit code for the program.
+- **/
++ * @brief Initialize, process native events, then update the turn-based game.
++ */
+ int main ( ) {
+-#else
+-/**
+- * @brief		The program entry point in release mode.
+- *
+- * The main method initializes the application, then enters the main game loop. Windows messages are
+- * handled in each pass of the loop, then program control is passed off to the MainState. Once the game loop
+- * finishes cleaup on all globally allocated memory is performed.
+- *
+- * @param[in]	instance	Handle to the current instance of the application.
+- * @param[in]	pInstance	Handle to the previous instance of the application. Always 0.
+- * @param[in]	cmdLine		The command line.
+- * @param[in]	cmdShow		How the window should be shown.
+- * @return		Exit code for the program.
+- **/
+-int WINAPI WinMain ( HINSTANCE instance, HINSTANCE pInstance, LPSTR cmdLine, int cmdShow ) {
+-#endif
+ 
+ 	MainState *mainState = 0;
+ 
+@@ -111,37 +85,18 @@
+ 		// Create the main state
+ 		mainState = new MainState();
+ 
+-		// Enter the game loop
+-		MSG msg;
+-		memset( &msg, 0, sizeof( MSG ) );
+-
+-		bool done = false;
+-
+-		while ( !done ) {
+-
+-			// Handle windows messages
+-			while ( PeekMessage( &msg, 0, 0, 0, PM_REMOVE ) ) {
+-
+-				if ( msg.message == WM_QUIT )
+-					done = true;
+-
+-				TranslateMessage( &msg );
+-				DispatchMessage( &msg );
+-			}
+-
+-			if ( !done ) {
+-
+-				// Have the main state branch out control
+-				if ( mainState->Update() == STATE_RET_FAIL )
+-					PostQuitMessage( 0 );
+-			}
++		// Drain events before each update; sleeping does not advance game turns.
++		while ( PumpEvents() ) {
++			if ( mainState->Update() == STATE_RET_FAIL )
++				break;
++			SDL_Delay( 10 );
+ 		}
+ 	}
+ 
+ 	else {
+ 
+ 		g_logger->Write( LOG_LEVEL_CRIT, "Initialization failed" );
+-		MessageBox( 0, "Initialization failed. You may need to re-install.", "Fatal Error", MB_OK );
++		ShowError( "Fatal Error", "Initialization failed. You may need to re-install." );
+ 	}
+ 
+ 
+@@ -152,13 +107,13 @@
+ 
+ 	SAFE_DELETE( mainState );
+ 
+-	SAFE_DELETE( g_fontManager );
+ 	SAFE_DELETE( g_msgManager );
+ 
+ 	SAFE_DELETE( g_itemFact );
+ 
+ 	for ( int i = 0; i < TERM_COUNT; i++ )
+ 		SAFE_DELETE( g_terminal[ i ] );
++	SAFE_DELETE( g_fontManager );
+ 	Terminal::Unregister();
+ 
+ 	SAFE_DELETE( g_FOV );
+@@ -168,5 +123,5 @@
+ 
+ 	SAFE_DELETE( g_logger );
+ 
+-	return 0;
++	return result ? 0 : 1;
+ }
+--- a/src/input.cpp
++++ b/src/input.cpp
+@@ -1,159 +1,108 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+- * @file	input.cpp
+- *
+- * @author	Jake Keel
+- * @date	9/1/2009 
+- *
+- * @brief	Implements the WndProc used to handle all input, storing key input in a global circular buffer.
+- **/
++ * @file input.cpp
++ * @brief SDL events and the game's bounded keyboard queue.
++ */
+ 
+ /*----------------------------------------------------------------------
+- *	Exalt
+- *	Copyright (C) 2009-2010  Jake Keel
++ * Exalt
++ * Copyright (C) 2009-2010 Jake Keel
+  *
+- *	This program is free software: you can redistribute it and/or modify
+- *	it under the terms of the GNU General Public License as published by
+- *	the Free Software Foundation, either version 3 of the License, or
+- *	(at your option) any later version.
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
+ #include "input.h"
+ #include "terminal.h"
++#include "logger.h"
++#include <SDL.h>
++#include <stdio.h>
+ 
++namespace {
++int keyPress[MAX_KEY_PRESSES];
++int keyHead = 0;
++int keyTail = 0;
++int keyCount = 0;
+ 
+-int g_keyPress[ MAX_KEY_PRESSES ];		/**< An array of queued up key presses. */
+-int g_keyPressHead = 0;					/**< An index into \p g_keyPress of the next key press in the queue. */
+-int g_keyPressTail = 0;					/**< An index into \p g_keyPress of the last key press in the queue. */
+-bool g_shiftDown = false;				/**< Whether or not shift is being held down.. */
+-
+-
+-/**
+- * @brief	Returns whether or not key presses are waiting to be processed.
+- *
+- * @return	Whether or not key presses are waiting to be processed.
+- **/
+-bool HasKeyInput ( ) {
+-
+-	return g_keyPressHead != g_keyPressTail;
++void QueueKey ( int key ) {
++    // Ignore unmapped keys; never overwrite input that is still pending.
++    if ( key == 0 || keyCount == MAX_KEY_PRESSES )
++        return;
++    keyPress[keyTail] = key;
++    keyTail = (keyTail + 1) % MAX_KEY_PRESSES;
++    ++keyCount;
+ }
+ 
+-
+-/**
+- * @brief	Gets the next key press in the queue.
+- *
+- * @return	The key that was pressed. 
+- **/
+-int GetKeyInput ( ) {
+-
+-	int key = g_keyPress[ g_keyPressHead++ ];
+-
+-	if ( g_keyPressHead == MAX_KEY_PRESSES )
+-		g_keyPressHead = 0;
+-
+-	return key;
++Terminal* FindTerminal ( Uint32 windowID ) {
++    for ( int i = 0; i < TERM_COUNT; ++i ) {
++        if ( g_terminal[i] && g_terminal[i]->GetWindow() &&
++             SDL_GetWindowID( g_terminal[i]->GetWindow() ) == windowID )
++            return g_terminal[i];
++    }
++    return 0;
++}
+ }
+ 
+-
+-/**
+- * @brief		Adds a key press to the input queue.
+- *
+- * @param[in]	key		The key that was pressed.
+- **/
+-void SetKeyInput ( int key ) {
+-
+-	if ( g_shiftDown )
+-		g_keyPress[ g_keyPressTail++ ] = KEYMAP[ key ].shift;
+-	else
+-		g_keyPress[ g_keyPressTail++ ] = KEYMAP[ key ].normal;
+-
+-	if ( g_keyPressTail == MAX_KEY_PRESSES )
+-		g_keyPressTail = 0;
++bool HasKeyInput ( ) {
++    return keyCount != 0;
+ }
+ 
++int GetKeyInput ( ) {
++    if ( keyCount == 0 )
++        return 0;
++    int key = keyPress[keyHead];
++    keyHead = (keyHead + 1) % MAX_KEY_PRESSES;
++    --keyCount;
++    return key;
++}
+ 
+-/**
+- * @brief	The windows message processor.
+- *
+- * @param[in]	window		Handle of the window. 
+- * @param[in]	msg			The message. 
+- * @param[in]	wParam		The wParam field of the message. 
+- * @param[in]	lParam		The lParam field of the message. 
+- * @return		The result of the message.
+- **/
+-LRESULT CALLBACK WndProc ( HWND window, UINT msg, WPARAM wParam, LPARAM lParam ) {
++bool PumpEvents ( ) {
++    SDL_Event event;
++    bool running = true;
++    while ( SDL_PollEvent( &event ) ) {
++        if ( event.type == SDL_QUIT ) {
++            running = false;
++        }
++        else if ( event.type == SDL_KEYDOWN ) {
++            if ( FindTerminal( event.key.windowID ) )
++                QueueKey( MapKey( event.key.keysym.sym,
++                                  (event.key.keysym.mod & KMOD_SHIFT) != 0 ) );
++        }
++        else if ( event.type == SDL_WINDOWEVENT ) {
++            Terminal *terminal = FindTerminal( event.window.windowID );
++            if ( !terminal )
++                continue;
++            switch ( event.window.event ) {
++                case SDL_WINDOWEVENT_CLOSE:
++                    if ( terminal->GetTermID() == TERM_ID_MAIN )
++                        running = false;
++                    else
++                        SDL_HideWindow( terminal->GetWindow() );
++                    break;
++                case SDL_WINDOWEVENT_SIZE_CHANGED:
++                    terminal->WindowResized();
++                    terminal->Draw();
++                    break;
++                case SDL_WINDOWEVENT_EXPOSED:
++                case SDL_WINDOWEVENT_SHOWN:
++                case SDL_WINDOWEVENT_RESTORED:
++                    terminal->Draw();
++                    break;
++            }
++        }
++        // Only KEYDOWN produces game input. TEXTINPUT would duplicate printable
++        // keys, and the original game accepts ASCII rather than composed text.
++    }
++    return running;
++}
+ 
+-	PAINTSTRUCT paint;
+-	Terminal *terminal = (Terminal*)GetWindowLong( window, 0 );
+-
+-	switch ( msg ) {
+-
+-		case WM_CLOSE:
+-		case WM_DESTROY:
+-
+-			if ( terminal->GetTermID() == 0 )
+-				PostQuitMessage( 0 );
+-			else
+-				ShowWindow( window, SW_HIDE );
+-			return 0;
+-
+-
+-		case WM_PAINT: {
+-
+-			BeginPaint( window, &paint );
+-
+-			if ( terminal )
+-				terminal->Draw();
+-
+-			EndPaint( window, &paint );
+-			return 0; }
+-
+-
+-		case WM_SIZE:
+-
+-			if ( terminal )
+-				terminal->WindowResized();
+-
+-			return DefWindowProc( window, msg, wParam, lParam );
+-
+-
+-		case WM_KEYDOWN:
+-
+-			if ( wParam == KEY_SHIFT )
+-				g_shiftDown = true;
+-
+-			else
+-				SetKeyInput( wParam );
+-			return 0;
+-
+-
+-		case WM_KEYUP:
+-
+-			if ( wParam == KEY_SHIFT )
+-				g_shiftDown = false;
+-			return 0;
+-
+-
+-		case WM_MOUSEMOVE:
+-			return 0;
+-
+-
+-		case WM_LBUTTONDOWN:
+-			return 0;
+-
+-
+-		case WM_LBUTTONUP:
+-			return 0;
+-
+-
+-		case WM_RBUTTONDOWN:
+-			return 0;
+-
+-
+-		case WM_RBUTTONUP:
+-			return 0;
+-
+-
+-		default:
+-			return DefWindowProc( window, msg, wParam, lParam );
+-	}
++void ShowError ( const char *title, const char *message ) {
++    SDL_Window *parent = g_terminal[TERM_ID_MAIN] ?
++        g_terminal[TERM_ID_MAIN]->GetWindow() : 0;
++    if ( SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR, title, message, parent ) < 0 ) {
++        fprintf( stderr, "%s: %s (dialog unavailable: %s)\n", title, message, SDL_GetError() );
++        g_logger->Write( LOG_LEVEL_WARN, "Failed to show error dialog: %s", SDL_GetError() );
++    }
+ }
+--- a/src/input.h
++++ b/src/input.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	input.h
+  *
+@@ -20,7 +21,7 @@
+ #ifndef INPUT_H
+ #define INPUT_H
+ 
+-#include "KeyMap.h"
++#include "keymap.h"
+ 
+ 
+ const int MAX_KEY_PRESSES =			128;	/**< The maximum number of key presses that will be able to be in the input queue at any given time. */
+@@ -29,5 +30,11 @@
+ bool HasKeyInput ( );
+ int GetKeyInput ( );
+ 
++/** Drain SDL events; false means the main window or application was closed. */
++bool PumpEvents ( );
++
++/** Display a native error dialog, reporting failures to stderr and the logger. */
++void ShowError ( const char *title, const char *message );
++
+ 
+ #endif
+--- a/src/keymap.h
++++ b/src/keymap.h
+@@ -1,327 +1,100 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+- * @file	keymap.h
+- *
+- * @author	Jake Keel
+- * @date	9/1/2009
+- *
+- * @brief	Stores a mapping of key press codes to actual ASCII characters.
+- *
+- * Contains an array that maps key presses to ASCII characters, taking into account the shift key.
+- * Some of the functional keys have been assigned fake ASCII values so they can easily be referenced
+- * throughout the code without interfering with actual characters.
+- **/
++ * @file keymap.h
++ * @brief Explicit SDL key to original Exalt ASCII and function-key mapping.
++ */
+ 
+ /*----------------------------------------------------------------------
+- *	Exalt
+- *	Copyright (C) 2009-2010  Jake Keel
++ * Exalt
++ * Copyright (C) 2009-2010 Jake Keel
+  *
+- *	This program is free software: you can redistribute it and/or modify
+- *	it under the terms of the GNU General Public License as published by
+- *	the Free Software Foundation, either version 3 of the License, or
+- *	(at your option) any later version.
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
+ #ifndef KEY_MAP_H
+ #define KEY_MAP_H
+ 
++#include <SDL_keycode.h>
+ 
+-const int KEY_SHIFT =					16;			/**< The shift key is the only key intercepted and handled by the Input class. */
++const unsigned char KEY_ESC = 255;
++const unsigned char KEY_UP = 254;
++const unsigned char KEY_RIGHT = 253;
++const unsigned char KEY_DOWN = 252;
++const unsigned char KEY_LEFT = 251;
++const unsigned char KEY_BACKSPACE = 250;
++const unsigned char KEY_DELETE = 249;
++const unsigned char KEY_RETURN = 248;
++const unsigned char KEY_F1 = 247;
++const unsigned char KEY_F2 = 246;
++const unsigned char KEY_F3 = 245;
++const unsigned char KEY_F4 = 244;
++const unsigned char KEY_F5 = 243;
++const unsigned char KEY_F6 = 242;
++const unsigned char KEY_F7 = 241;
++const unsigned char KEY_F8 = 240;
++const unsigned char KEY_F9 = 239;
+ 
+-const unsigned char KEY_ESC =			255;		/**< The escape key. */
+-const unsigned char KEY_UP =			254;		/**< The up arrow key. */
+-const unsigned char KEY_RIGHT =			253;		/**< The right arrow key. */
+-const unsigned char KEY_DOWN =			252;		/**< The down arrow key. */
+-const unsigned char KEY_LEFT =			251;		/**< The left arrow key. */
+-const unsigned char KEY_BACKSPACE =		250;		/**< The backspace key. */
+-const unsigned char KEY_DELETE =		249;		/**< The delete key. */
+-const unsigned char KEY_RETURN =		248;		/**< The return key. */
+-const unsigned char KEY_F1 =			247;		/**< The F1 key. */
+-const unsigned char KEY_F2 =			246;		/**< The F2 key. */
+-const unsigned char KEY_F3 =			245;		/**< The F3 key. */
+-const unsigned char KEY_F4 =			244;		/**< The F4 key. */
+-const unsigned char KEY_F5 =			243;		/**< The F5 key. */
+-const unsigned char KEY_F6 =			242;		/**< The F6 key. */
+-const unsigned char KEY_F7 =			241;		/**< The F7 key. */
+-const unsigned char KEY_F8 =			240;		/**< The F8 key. */
+-const unsigned char KEY_F9 =			239;		/**< The F9 key. */
++// SDL keycodes are sparse and must not index the old 256-entry VK table.
++// Like upstream, only Shift modifies ASCII: Caps Lock and Control do not.
++inline int MapKey ( SDL_Keycode key, bool shift ) {
++    if ( key >= SDLK_a && key <= SDLK_z )
++        return (shift ? 'A' : 'a') + (key - SDLK_a);
++    if ( key >= SDLK_0 && key <= SDLK_9 ) {
++        const char shifted[] = ")!@#$%^&*(";
++        return shift ? shifted[key - SDLK_0] : '0' + (key - SDLK_0);
++    }
+ 
+-
+-/**
+- * @class	KeyMap
+- * @brief	A node class that contains 2 matching characters, one when the shift key is down.
+- *
+- * @author	Jake Keel
+- * @date	9/22/2009
+- **/
+-class KeyMap {
+-
+-	// Vars
+-public:
+-	unsigned char normal;		/**< The character when the shift key is not down. */
+-	unsigned char shift;		/**< The character when the shift key is down. */
+-
+-};
+-
+-
+-/** A mapping of all 256 key press codes. */
+-const KeyMap KEYMAP[] = {
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ KEY_BACKSPACE, KEY_BACKSPACE },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ KEY_RETURN, KEY_RETURN },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 15
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ KEY_ESC, KEY_ESC },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 31
+-	{ ' ', ' ' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ KEY_LEFT, KEY_LEFT },
+-	{ KEY_UP, KEY_UP },
+-	{ KEY_RIGHT, KEY_RIGHT },
+-	{ KEY_DOWN, KEY_DOWN },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ KEY_DELETE, KEY_DELETE },
+-	{ '\0', '\0' }, // 47
+-	{ '0', ')' },
+-	{ '1', '!' },
+-	{ '2', '@' },
+-	{ '3', '#' },
+-	{ '4', '$' },
+-	{ '5', '%' },
+-	{ '6', '^' },
+-	{ '7', '&' },
+-	{ '8', '*' },
+-	{ '9', '(' },
+-	{ ';', ':' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 63
+-	{ '\0', '\0' },
+-	{ 'a', 'A' },
+-	{ 'b', 'B' },
+-	{ 'c', 'C' },
+-	{ 'd', 'D' },
+-	{ 'e', 'E' },
+-	{ 'f', 'F' },
+-	{ 'g', 'G' },
+-	{ 'h', 'H' },
+-	{ 'i', 'I' },
+-	{ 'j', 'J' },
+-	{ 'k', 'K' },
+-	{ 'l', 'L' },
+-	{ 'm', 'M' },
+-	{ 'n', 'N' },
+-	{ 'o', 'O' }, // 79
+-	{ 'p', 'P' },
+-	{ 'q', 'Q' },
+-	{ 'r', 'R' },
+-	{ 's', 'S' },
+-	{ 't', 'T' },
+-	{ 'u', 'U' },
+-	{ 'v', 'V' },
+-	{ 'w', 'W' },
+-	{ 'x', 'X' },
+-	{ 'y', 'Y' },
+-	{ 'z', 'Z' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 95
+-	{ '0', '0' },
+-	{ '1', '1' },
+-	{ '2', '2' },
+-	{ '3', '3' },
+-	{ '4', '4' },
+-	{ '5', '5' },
+-	{ '6', '6' },
+-	{ '7', '7' },
+-	{ '8', '8' },
+-	{ '9', '9' },
+-	{ '*', '*' },
+-	{ '+', '+' },
+-	{ '\0', '\0' },
+-	{ '-', '-' },
+-	{ '.', '.' },
+-	{ '/', '/' }, // 111
+-	{ KEY_F1, KEY_F1 },
+-	{ KEY_F2, KEY_F2 },
+-	{ KEY_F3, KEY_F3 },
+-	{ KEY_F4, KEY_F4 },
+-	{ KEY_F5, KEY_F5 },
+-	{ KEY_F6, KEY_F6 },
+-	{ KEY_F7, KEY_F7 },
+-	{ KEY_F8, KEY_F8 },
+-	{ KEY_F9, KEY_F9 },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 127
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 143
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 159
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 175
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ ';', ':' },
+-	{ '=', '+' },
+-	{ ',', '<' },
+-	{ '-', '_' },
+-	{ '.', '>' },
+-	{ '/', '?' }, // 191
+-	{ '`', '~' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 207
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '[', '{' },
+-	{ '\\', '|' },
+-	{ ']', '}' },
+-	{ '\'', '"' },
+-	{ '\0', '\0' }, // 223
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' }, // 239
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' },
+-	{ '\0', '\0' } // 255
+-};
+-
++    switch ( key ) {
++        case SDLK_ESCAPE: return KEY_ESC;
++        case SDLK_UP: return KEY_UP;
++        case SDLK_RIGHT: return KEY_RIGHT;
++        case SDLK_DOWN: return KEY_DOWN;
++        case SDLK_LEFT: return KEY_LEFT;
++        case SDLK_BACKSPACE: return KEY_BACKSPACE;
++        case SDLK_DELETE: return KEY_DELETE;
++        case SDLK_RETURN:
++        case SDLK_KP_ENTER: return KEY_RETURN;
++        case SDLK_F1: return KEY_F1;
++        case SDLK_F2: return KEY_F2;
++        case SDLK_F3: return KEY_F3;
++        case SDLK_F4: return KEY_F4;
++        case SDLK_F5: return KEY_F5;
++        case SDLK_F6: return KEY_F6;
++        case SDLK_F7: return KEY_F7;
++        case SDLK_F8: return KEY_F8;
++        case SDLK_F9: return KEY_F9;
++        case SDLK_KP_0: return '0';
++        case SDLK_KP_1: return '1';
++        case SDLK_KP_2: return '2';
++        case SDLK_KP_3: return '3';
++        case SDLK_KP_4: return '4';
++        case SDLK_KP_5: return '5';
++        case SDLK_KP_6: return '6';
++        case SDLK_KP_7: return '7';
++        case SDLK_KP_8: return '8';
++        case SDLK_KP_9: return '9';
++        case SDLK_KP_MULTIPLY: return '*';
++        case SDLK_KP_PLUS: return '+';
++        case SDLK_KP_MINUS: return '-';
++        case SDLK_KP_PERIOD: return '.';
++        case SDLK_KP_DIVIDE: return '/';
++        case SDLK_SPACE: return ' ';
++        case SDLK_SEMICOLON: return shift ? ':' : ';';
++        case SDLK_EQUALS: return shift ? '+' : '=';
++        case SDLK_COMMA: return shift ? '<' : ',';
++        case SDLK_MINUS: return shift ? '_' : '-';
++        case SDLK_PERIOD: return shift ? '>' : '.';
++        case SDLK_SLASH: return shift ? '?' : '/';
++        case SDLK_BACKQUOTE: return shift ? '~' : '`';
++        case SDLK_LEFTBRACKET: return shift ? '{' : '[';
++        case SDLK_BACKSLASH: return shift ? '|' : '\\';
++        case SDLK_RIGHTBRACKET: return shift ? '}' : ']';
++        case SDLK_QUOTE: return shift ? '"' : '\'';
++        default: return 0;
++    }
++}
+ 
+ #endif
+--- a/src/extio.cpp
++++ b/src/extio.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	extio.cpp
+  *
+@@ -18,6 +19,11 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "extio.h"
++#include <dirent.h>
++#include <errno.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#include <stdlib.h>
+ 
+ 
+ /**
+@@ -153,9 +159,9 @@
+  **/
+ int LoadHexInt ( FILE *fileIn ) {
+ 
+-	int val;
+-	sscanf_s( GetNextToken( fileIn ).c_str(), "%x", &val );
+-	return val;
++	unsigned int val = 0;
++	sscanf( GetNextToken( fileIn ).c_str(), "%x", &val );
++	return static_cast<int>( val );
+ }
+ 
+ 
+@@ -168,9 +174,9 @@
+  **/
+ int LoadHexInt ( char *str, int *index ) {
+ 
+-	int val;
+-	sscanf_s( GetNextToken( str, index ).c_str(), "%x", &val );
+-	return val;
++	unsigned int val = 0;
++	sscanf( GetNextToken( str, index ).c_str(), "%x", &val );
++	return static_cast<int>( val );
+ }
+ 
+ 
+@@ -388,7 +394,7 @@
+  * @param	...		The formatting parameters
+  * @return	The formatted string.
+  **/
+-string Format ( char *str, ... ) {
++string Format ( const char *str, ... ) {
+ 
+ 	// Format the message
+ 	char buff[ 128 ];
+@@ -475,146 +481,103 @@
+ }
+ 
+ 
+-/**
+- * @brief	Returns a directory listing, returning only files. 
+- *
+- * @param	path	Full pathname of the directory to list. 
+- * @return	The file list. 
+- **/
++namespace {
++// Preserve upstream filters: files include dotfiles; directories do not include
++// names beginning with '.'. Return entry names rather than full paths.
++list< string > ListDirectory ( string path, bool directories ) {
++	list< string > entries;
++	DIR *directory = opendir( path.c_str() );
++	if ( !directory ) {
++		g_logger->Write( LOG_LEVEL_WARN, "Failed to list directory '%s'. Error code '%d'", path.c_str(), errno );
++		return entries;
++	}
++	if ( !path.empty() && path[path.length() - 1] != '/' )
++		path += '/';
++	for ( ;; ) {
++		errno = 0;
++		struct dirent *entry = readdir( directory );
++		if ( !entry ) {
++			if ( errno )
++				g_logger->Write( LOG_LEVEL_WARN, "Failed to read directory '%s'. Error code '%d'", path.c_str(), errno );
++			break;
++		}
++		if ( directories && entry->d_name[0] == '.' )
++			continue;
++		string fullPath = path + entry->d_name;
++		struct stat info;
++		if ( lstat( fullPath.c_str(), &info ) != 0 ) {
++			g_logger->Write( LOG_LEVEL_WARN, "Failed to inspect '%s'. Error code '%d'", fullPath.c_str(), errno );
++			continue;
++		}
++		// Follow links for listing only; dangling links remain removable files.
++		if ( S_ISLNK( info.st_mode ) ) {
++			struct stat target;
++			if ( stat( fullPath.c_str(), &target ) == 0 )
++				info = target;
++		}
++		if ( (S_ISDIR( info.st_mode ) != 0) == directories )
++			entries.push_back( entry->d_name );
++	}
++	if ( closedir( directory ) != 0 )
++		g_logger->Write( LOG_LEVEL_WARN, "Failed to close directory '%s'. Error code '%d'", path.c_str(), errno );
++	return entries;
++}
++}
++
++/** Return non-directory names, including dotfiles. */
+ list< string > GetFileList ( string path ) {
+-
+-	// Make sure it ends with a slash *
+-	if ( path[ path.length() - 1 ] != '/' )
+-		path += '/';
+-	path += '*';
+-
+-
+-	list< string > fileList;
+-
+-
+-	// Verify the directory and get the first file
+-	WIN32_FIND_DATA findData;
+-	HANDLE handle = FindFirstFile( path.c_str(), &findData );
+-
+-	if ( handle == INVALID_HANDLE_VALUE )
+-		return fileList;
+-
+-
+-	// Loop uptil no more files remain
+-	do {
+-
+-		// Check the file
+-		if ( !(findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
+-			fileList.push_back( findData.cFileName );
+-	
+-	} while ( FindNextFile( handle, &findData ) );
+-
+-	// Close the find
+-	FindClose( handle );
+-
+-	return fileList;
+-}
+-
+-
+-/**
+- * @brief	Returns a directory listing, returning only directories. 
+- *
+- * @param	path	Full pathname of the directory to list. 
+- * @return	The directory list. 
+- **/
++	return ListDirectory( path, false );
++}
++
++/** Return directory names except those beginning with '.'. */
+ list< string > GetDirList ( string path ) {
+-
+-	// Make sure it ends with a slash *
+-	if ( path[ path.length() - 1 ] != '/' )
+-		path += '/';
+-	path += '*';
+-
+-
+-	list< string > dirList;
+-
+-
+-	// Verify the directory and get the first file
+-	WIN32_FIND_DATA findData;
+-	HANDLE handle = FindFirstFile( path.c_str(), &findData );
+-
+-	if ( handle == INVALID_HANDLE_VALUE )
+-		return dirList;
+-
+-
+-	// Loop uptil no more files remain
+-	do {
+-
+-		// Check the file
+-		if ( findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY && findData.cFileName[ 0 ] != '.' )
+-			dirList.push_back( findData.cFileName );
+-	
+-	} while ( FindNextFile( handle, &findData ) );
+-
+-	// Close the find
+-	FindClose( handle );
+-
+-	return dirList;
+-}
+-
+-
+-/**
+- * @brief	Creates a directory. 
+- *
+- * @param	path	Full pathname of the directory. 
+- * @return	Whether or not the directory was successfully created.
+- **/
++	return ListDirectory( path, true );
++}
++
++/** Create one directory; an existing directory is still a failure. */
+ bool CreateDir ( string path ) {
+-
+-	return CreateDirectory( path.c_str(), 0 ) != 0;
+-}
+-
+-
+-/**
+- * @brief	Deletes a directory, including all subdirectories and files.
+- *
+- * @param	path	Full pathname of the directory to delete. 
+- * @return	Whether or not the directory was successfully deleted.
+- **/
++	if ( mkdir( path.c_str(), 0777 ) == 0 )
++		return true;
++	g_logger->Write( LOG_LEVEL_WARN, "Failed to create directory '%s'. Error code '%d'", path.c_str(), errno );
++	return false;
++}
++
++/** Delete files and non-dot subdirectories, without traversing symlinks. */
+ bool DeleteDir ( string path ) {
+-
+-	// Make sure it ends with a slash
+-	if ( path[ path.length() - 1 ] != '/' )
+-		path += '/';
+-
+-
+-	// Delete all the files in the directory
++	// Strip trailing slashes so lstat cannot follow a directory symlink.
++	while ( path.length() > 1 && path[path.length() - 1] == '/' )
++		path.erase( path.length() - 1 );
++	struct stat info;
++	if ( lstat( path.c_str(), &info ) != 0 ) {
++		if ( errno == ENOENT )
++			return true;
++		g_logger->Write( LOG_LEVEL_WARN, "Failed to inspect directory '%s'. Error code '%d'", path.c_str(), errno );
++		return false;
++	}
++	if ( S_ISLNK( info.st_mode ) ) {
++		if ( unlink( path.c_str() ) == 0 )
++			return true;
++		g_logger->Write( LOG_LEVEL_WARN, "Failed to delete directory link '%s'. Error code '%d'", path.c_str(), errno );
++		return false;
++	}
++	string prefix = path;
++	if ( !prefix.empty() && prefix[prefix.length() - 1] != '/' )
++		prefix += '/';
+ 	list< string > fileList = GetFileList( path );
+-
+ 	foreach ( list< string >, &fileList ) {
+-	
+-		if ( !DeleteFile( (path + *it).c_str() ) ) {
+-
+-			g_logger->Write( LOG_LEVEL_WARN, "Failed to delete file '%s' while deleting directory '%s'. Error code '%d'", it->c_str(), path.c_str(), GetLastError() );
++		if ( unlink( (prefix + *it).c_str() ) != 0 ) {
++			g_logger->Write( LOG_LEVEL_WARN, "Failed to delete file '%s' while deleting directory '%s'. Error code '%d'", it->c_str(), path.c_str(), errno );
+ 			return false;
+ 		}
+ 	}
+-
+-
+-	// Delete all the directories in the directory
+ 	list< string > dirList = GetDirList( path );
+-
+ 	foreach ( list< string >, &dirList ) {
+-
+-		if ( !DeleteDir( (path + *it).c_str() ) )
++		if ( !DeleteDir( prefix + *it ) )
+ 			return false;
+ 	}
+-
+-	
+-	// Delete the directory
+-	if ( !RemoveDirectory( path.c_str() ) ) {
+-
+-		DWORD error = GetLastError();
+-		if ( error != ERROR_FILE_NOT_FOUND ) {
+-
+-			g_logger->Write( LOG_LEVEL_WARN, "Failed to delete directory '%s'. Error code '%d'", path.c_str(), error );
+-			return false;
+-		}
+-	}
+-
++	if ( rmdir( path.c_str() ) != 0 && errno != ENOENT ) {
++		g_logger->Write( LOG_LEVEL_WARN, "Failed to delete directory '%s'. Error code '%d'", path.c_str(), errno );
++		return false;
++	}
+ 	return true;
+ }
+--- a/src/extio.h
++++ b/src/extio.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	extio.h
+  *
+@@ -27,7 +28,6 @@
+ #include <sstream>
+ using namespace std;
+ 
+-#include "winlean.h"
+ #include "logger.h"
+ 
+ #include "tokenizer.h"
+@@ -73,7 +73,7 @@
+ 
+ string IntToStr ( int i );
+ 
+-string Format ( char *str, ... );
++string Format ( const char *str, ... );
+ 
+ string XMLize ( string str );
+ string SQLize ( string str );
+--- a/src/mainstate.cpp
++++ b/src/mainstate.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	mainstate.cpp
+  *
+@@ -220,7 +221,7 @@
+ 						if ( !m_gameState->SetWorld( m_options[ result ].m_cstr.m_str ) ) {
+ 
+ 							g_logger->Write( LOG_LEVEL_WARN, "Failed to load world '%s'", m_options[ result ].m_cstr.m_str.c_str() );
+-							MessageBox( 0, ("Failed to load world " + m_options[ result ].m_cstr.m_str + ". Trying re-installing the world.").c_str(), "Error", MB_OK );
++							ShowError( "Error", ("Failed to load world " + m_options[ result ].m_cstr.m_str + ". Trying re-installing the world.").c_str() );
+ 							break;
+ 						}
+ 
+@@ -229,7 +230,7 @@
+ 						if ( !m_gameState->InitNewGame() ) {
+ 
+ 							g_logger->Write( LOG_LEVEL_WARN, "Failed to initialize the GameState" );
+-							MessageBox( 0, "Failed to initialize the game. Try re-installing the world.", "Error", MB_OK );
++							ShowError( "Error", "Failed to initialize the game. Try re-installing the world." );
+ 						}
+ 						else {
+ 
+--- a/src/birthstate.cpp
++++ b/src/birthstate.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	birthstate.cpp
+  *
+@@ -167,7 +168,7 @@
+ 				if ( !m_infoBrowser->Init( helpStr ) ) {
+ 
+ 					g_logger->Write( LOG_LEVEL_WARN, "Failed to load help file '%s", helpStr.c_str() );
+-					MessageBox( 0, ("Failed to load help file '" + helpStr + "'.").c_str(), "Error", MB_OK );
++					ShowError( "Error", ("Failed to load help file '" + helpStr + "'.").c_str() );
+ 
+ 					m_birthState = BIRTH_STATE_RACE;
+ 					return STATE_RET_NOTHING;
+--- a/src/winlean.h
++++ /dev/null
+@@ -1,27 +0,0 @@
+-/**
+- * @file	winlean.h
+- *
+- * @author	Jake Keel
+- * @date	9/1/2009 
+- *
+- * @brief	Cuts down on the amount that gets further included in the standard windows header.
+- *
+- * Any file that needs to include windows.h should include this instead as it cuts down on the
+- * amount that gets further included in the standard windows header.
+- **/
+-
+-/*----------------------------------------------------------------------
+- *	Exalt
+- *	Copyright (C) 2009-2010  Jake Keel
+- *
+- *	This program is free software: you can redistribute it and/or modify
+- *	it under the terms of the GNU General Public License as published by
+- *	the Free Software Foundation, either version 3 of the License, or
+- *	(at your option) any later version.
+- *----------------------------------------------------------------------*/
+-
+-#define WIN32_LEAN_AND_MEAN
+-
+-#include <windows.h>
+-
+-#undef WIN32_LEAN_AND_MEAN
+--- a/src/astar.h
++++ b/src/astar.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	astar.h
+  *
+@@ -24,7 +25,7 @@
+ using namespace std;
+ 
+ #include "areadef.h"
+-#include "ExtMath.h"
++#include "extmath.h"
+ 
+ 
+ /**
+--- a/src/bitmap.cpp
++++ b/src/bitmap.cpp
+@@ -1,4 +1,6 @@
+-#include "Bitmap.h"
++// Modified for the Guix Linux port, 2026-10-15.
++#include "bitmap.h"
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/db.cpp
++++ b/src/db.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	DB.cpp
+  *
+@@ -17,7 +18,7 @@
+  *	(at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
+-#include "DB.h"
++#include "db.h"
+ 
+ 
+ DB *g_db = new DB();		/**< The one and only instance of the DB class. */
+--- a/src/db.h
++++ b/src/db.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	DB.h
+  *
+@@ -24,7 +25,7 @@
+ #include "safemem.h"
+ #include "filesystem.h"
+ 
+-#include "sqlite/sqlite3.h"
++#include <sqlite3.h>
+ 
+ 
+ /**
+--- a/src/gameobj.h
++++ b/src/gameobj.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	gameobj.h
+  *
+@@ -21,7 +22,7 @@
+ #define GAME_OBJECT_H
+ 
+ #include "vertex2i.h"
+-#include "Material.h"
++#include "material.h"
+ #include "look.h"
+ 
+ 
+--- a/src/gamestate.h
++++ b/src/gamestate.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	gamestate.h
+  *
+@@ -24,9 +25,9 @@
+ 
+ #include "pc.h"
+ #include "world.h"
+-#include "monsterFact.h"
+-#include "levelFact.h"
+-#include "itemFact.h"
++#include "monsterfact.h"
++#include "levelfact.h"
++#include "itemfact.h"
+ #include "msgmanager.h"
+ #include "aimanager.h"
+ #include "door.h"
+--- a/src/helpstate.h
++++ b/src/helpstate.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	helpstate.h
+  *
+@@ -20,7 +21,7 @@
+ #ifndef HELP_STATE_H
+ #define HELP_STATE_H
+ 
+-#include "State.h"
++#include "state.h"
+ #include "menubox.h"
+ #include "infobrowser.h"
+ 
+--- a/src/infobrowser.h
++++ b/src/infobrowser.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	infobrowser.h
+  *
+@@ -21,7 +22,7 @@
+ #define INFO_BROWSER_H
+ 
+ #include "terminal.h"
+-#include "KeyMap.h"
++#include "keymap.h"
+ 
+ 
+ const int INFO_RET_NOTHING		= -1;		/**< A return code indicating that nothing needs to be done. */
+--- a/src/termlistener.h
++++ b/src/termlistener.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	termlistener.h
+  *
+@@ -42,7 +43,7 @@
+ 	 *
+ 	 * @param[in]	termID		The ID of the Terminal that was resized.
+ 	 **/
+-	virtual void TermResized ( int termID ) = 0 { termID; };
++	virtual void TermResized ( int termID ) = 0;
+ 
+ };
+ 
+--- a/src/logger.h
++++ b/src/logger.h
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	logger.h
+  *
+@@ -69,7 +70,7 @@
+ 	
+ 	bool Init ( );
+ 
+-	void Write ( char level, char *file, char *function, short line, char *msg, ... );
++	void Write ( char level, const char *file, const char *function, short line, const char *msg, ... );
+ 	
+ private:
+ 	void GetTimeStr ( char *timeStr, char *dateStr );
+--- a/src/logger.cpp
++++ b/src/logger.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	logger.cpp
+  *
+@@ -182,17 +183,16 @@
+  *							populate the first 4 parameters of this function.
+  * @note		\li			The msg param, and optional parameters can be used just like a call to printf.
+  **/
+-void Logger :: Write ( char level, char *file, char *function, short line, char *msg, ... ) {
++void Logger :: Write ( char level, const char *file, const char *function, short line, const char *msg, ... ) {
+ 
+ 	// Skip messages if output_level doesn't want it
+ 	if ( !m_logOut || !(level & OUTPUT_LEVEL) )
+ 		return;
+ 
+ 
+-	// Trim the file name
+-	char fileStr[ 32 ];
+-	memset( fileStr, '\0', sizeof( fileStr ) );
+-	strcpy( fileStr, strrchr( file, '\\' ) + 1 );
++	// __FILE__ uses POSIX separators on Linux and may have no directory at all.
++	const char *fileStr = strrchr( file, '/' );
++	fileStr = fileStr ? fileStr + 1 : file;
+ 
+ 
+ 	// Format the message
+--- a/src/attr.cpp
++++ b/src/attr.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	attr.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "attr.h"
++#include <stdlib.h>
+ 
+ 
+ /**
+--- a/src/ai.cpp
++++ b/src/ai.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	ai.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "ai.h"
++#include <stdlib.h>
+ 
+ 
+ /**
+--- a/src/astar.cpp
++++ b/src/astar.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	astar.cpp
+  *
+@@ -18,6 +19,8 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "astar.h"
++#include <stdlib.h>
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/creature.cpp
++++ b/src/creature.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	creature.cpp
+  *
+@@ -18,6 +19,9 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "creature.h"
++#include <stdlib.h>
++#include <string.h>
++#include <math.h>
+ 
+ 
+ /**
+--- a/src/dungen.cpp
++++ b/src/dungen.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	dungen.cpp
+  *
+@@ -15,6 +16,8 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "dungen.h"
++#include <stdlib.h>
++#include <string.h>
+ 
+ 
+ const int doorMaskCount = 14;	/**< The number of different door masks. */
+--- a/src/duntempman.cpp
++++ b/src/duntempman.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	duntemp.h
+  *
+@@ -15,6 +16,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "duntempman.h"
++#include <stdlib.h>
+ 
+ 
+ /**
+--- a/src/gameobj.cpp
++++ b/src/gameobj.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	gameobj.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "gameobj.h"
++#include <stdlib.h>
+ 
+ 
+ int g_nextObjectID = 1;	/**< The global counter for game object IDs. */
+--- a/src/itemfact.cpp
++++ b/src/itemfact.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	itemfact.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "itemfact.h"
++#include <stdlib.h>
+ 
+ 
+ ItemFact *g_itemFact = new ItemFact();		/**< The one and only instance of the ItemFact class. */
+--- a/src/monsterfact.cpp
++++ b/src/monsterfact.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	monsterfact.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "monsterfact.h"
++#include <stdlib.h>
+ 
+ 
+ /**
+@@ -223,7 +225,7 @@
+ 		sql += " AND id = " + IntToStr( id );
+ 
+ 	if ( !g_db->Query( sql ) )
+-		return false;
++		return 0;
+ 
+ 
+ 	// Were there any results?
+--- a/src/melee.cpp
++++ b/src/melee.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	melee.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "melee.h"
++#include <stdlib.h>
+ 
+ 
+ /**
+--- a/src/cmd.cpp
++++ b/src/cmd.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /*
+  * @file	cmd.cpp
+  *
+@@ -18,6 +19,9 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "gamestate.h"
++#include <ctype.h>
++#include <math.h>
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/maindisplay.cpp
++++ b/src/maindisplay.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	maindisplay.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "gamestate.h"
++#include <math.h>
+ 
+ 
+ MainDisplay *g_mainDisplay = new MainDisplay();		/**< The one and only instance of the MainDisplay class. */
+--- a/src/aimanager.cpp
++++ b/src/aimanager.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	aimanager.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "aimanager.h"
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/dunroom.cpp
++++ b/src/dunroom.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	dunroom.cpp
+  *
+@@ -15,6 +16,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "dunroom.h"
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/duntemp.cpp
++++ b/src/duntemp.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	duntemp.cpp
+  *
+@@ -15,6 +16,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "duntemp.h"
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/duntheme.cpp
++++ b/src/duntheme.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	duntheme.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "duntheme.h"
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/gamestate.cpp
++++ b/src/gamestate.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	gamestate.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "gamestate.h"
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/infobrowser.cpp
++++ b/src/infobrowser.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	infobrowser.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "infobrowser.h"
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/level.cpp
++++ b/src/level.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	level.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "level.h"
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/tokenizer.cpp
++++ b/src/tokenizer.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	tokenizer.cpp
+  *
+@@ -18,6 +19,7 @@
+  *----------------------------------------------------------------------*/
+ 
+ #include "tokenizer.h"
++#include <string.h>
+ 
+ 
+ /**
+--- a/src/msgmanager.cpp
++++ b/src/msgmanager.cpp
+@@ -1,3 +1,4 @@
++// Modified for the Guix Linux port, 2026-10-15.
+ /**
+  * @file	msgmanager.cpp
+  *
+@@ -243,7 +244,7 @@
+ 	
+ 	// For the next line
+ 	int index = 0;
+-	CString line = "";
++	CString line( "" );
+ 	CString token = GetNextToken( &m_curMsg, &index );
+ 	line += token;
+ 

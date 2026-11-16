@@ -1,0 +1,1018 @@
+From: Guix channel maintainers
+Subject: [PATCH] Port the original native terminal facade from GDI to SDL2
+Date: 2026-10-15
+
+Keep the five independently resizable cell-grid windows, original text colors,
+layout listeners and cyan look cursor. Cache measured SDL_ttf fonts and glyph
+masks, retaining dirty cells in software surfaces across native expose events.
+
+--- a/src/terminal.cpp
++++ b/src/terminal.cpp
+@@ -17,268 +17,133 @@
+  *	(at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
++// Modified 2026-10-15: port the native terminal and font facade to SDL2/SDL_ttf.
++
++#include <stdio.h>
+ #include "terminal.h"
+ 
+ 
+-extern LRESULT CALLBACK WndProc( HWND, UINT, WPARAM, LPARAM );		/**< The WinProc message handler. */
+-
+-Terminal *g_terminal[ TERM_COUNT ];									/**< An array of the only instances of the Terminal class. */
+-
+-
+-/**
+- * @brief	Registers the Terminal class with windows.
+- *
+- * @return	Whether or not the class was registered successfully.
+- **/
++Terminal *g_terminal[ TERM_COUNT ];
++
++namespace {
++bool videoRegistered = false;
++
++Uint32 CellColor ( SDL_PixelFormat *format, int color ) {
++    return SDL_MapRGB( format, color & 255, (color >> 8) & 255, (color >> 16) & 255 );
++}
++}
++
++/** Initialize the GUI libraries before opening any fonts or windows. */
+ bool Terminal :: Register ( ) {
+-
+-	// Register the terminal class
+-	WNDCLASS termClass;
+-	termClass.style			= CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+-	termClass.lpfnWndProc	= WndProc;
+-	termClass.cbClsExtra	= 0;
+-	termClass.cbWndExtra	= 4;
+-	termClass.hInstance		= GetModuleHandle( 0 );
+-	termClass.hIcon			= LoadIcon( 0, IDI_WINLOGO );
+-	termClass.hCursor		= LoadCursor( 0, IDC_ARROW );
+-	termClass.hbrBackground	= 0;
+-	termClass.lpszMenuName	= 0;
+-	termClass.lpszClassName	= "Terminal";
+-
+-	if ( !RegisterClass( &termClass ) ) {
+-
+-		int error = GetLastError();
+-		g_logger->Write( LOG_LEVEL_CRIT, "Failed to register 'Terminal' class - error %d", error );
+-		return false;
+-	}
+-	g_logger->Write( LOG_LEVEL_INFO, "Successfully registered 'Terminal' class" );
+-
+-	return true;
+-}
+-
+-
+-/**
+- * @brief	Unregisters the Terminal class with windows.
+- **/
++    if ( videoRegistered )
++        return true;
++    if ( SDL_InitSubSystem( SDL_INIT_VIDEO ) < 0 ) {
++        g_logger->Write( LOG_LEVEL_CRIT, "Cannot initialize SDL video: %s", SDL_GetError() );
++        return false;
++    }
++    if ( TTF_Init() < 0 ) {
++        g_logger->Write( LOG_LEVEL_CRIT, "Cannot initialize SDL_ttf: %s", TTF_GetError() );
++        SDL_QuitSubSystem( SDL_INIT_VIDEO );
++        return false;
++    }
++    videoRegistered = true;
++    return true;
++}
++
++/** Called after destroying all Terminals and the FontManager. */
+ void Terminal :: Unregister ( ) {
+-
+-	// Unregister the terminal class
+-	if ( !UnregisterClass( "Terminal", GetModuleHandle( 0 ) ) ) {
+-
+-		int error = GetLastError();
+-		g_logger->Write( LOG_LEVEL_WARN, "Failed to unregister 'Terminal' class - error %d", error );
+-	}
+-
+-	else
+-		g_logger->Write( LOG_LEVEL_INFO, "Successfully unregistered 'Terminal' class" );
+-}
+-
+-
+-/**
+- * @brief		Constructor.
+- *
+- * Initializes variables from parameters.
+- *
+- * @param[in]	termID	The ID for this Terminal.
+- **/
++    if ( videoRegistered ) {
++        TTF_Quit();
++        SDL_QuitSubSystem( SDL_INIT_VIDEO );
++        videoRegistered = false;
++    }
++}
++
+ Terminal :: Terminal ( TERM_ID termID ) {
+-
+-	m_termID = termID;
+-
+-	m_window = 0;
+-	m_dc = 0;
+-	m_listenerList = new list< TermListener* >();
+-	
+-	m_refreshPending = false;
+-	m_incremental = false;
+-
+-	m_lookBrush = CreateSolidBrush( RGB( 0, 255, 255 ) );
+-	m_lookTarget = CoordI( NO_LOOK_TARGET, NO_LOOK_TARGET );
+-}
+-
+-
+-/**
+- * @brief	Destructor. 
+- *
+- * Frees any memory allocated on the heap and releases any windows resources. 
+- **/
++    m_termID = termID;
++    m_window = 0;
++    m_canvas = 0;
++    m_termSize = DimI( 0, 0 );
++    m_gridSize = DimI( 0, 0 );
++    m_listenerList = new list< TermListener* >();
++    m_refreshPending = false;
++    m_lookTarget = CoordI( NO_LOOK_TARGET, NO_LOOK_TARGET );
++    for ( int y = 0; y < MAX_TERM_SIZE; ++y )
++        for ( int x = 0; x < MAX_TERM_SIZE; ++x )
++            m_grid[ x ][ y ].m_dirty = true;
++}
++
+ Terminal :: ~Terminal ( ) {
+-
+-	SAFE_DELETE( m_listenerList );
+-
+-	// Release the device context
+-	if ( !ReleaseDC( m_window, m_dc ) ) {
+-
+-		int error = GetLastError();
+-		g_logger->Write( LOG_LEVEL_WARN, "Failed to release device context for window '%s' - error %d", TERM_TITLE[ m_termID ].c_str(), error );
+-	}
+-
+-	else
+-		g_logger->Write( LOG_LEVEL_INFO, "Successfully released device context for window '%s'", TERM_TITLE[ m_termID ].c_str() );
+-
+-	m_dc = 0;
+-
+-
+-	// Destroy the window
+-	if ( !DestroyWindow( m_window ) ) {
+-
+-		int error = GetLastError();
+-		g_logger->Write( LOG_LEVEL_WARN, "Failed to destroy window '%s' - error %d", TERM_TITLE[ m_termID ].c_str(), error );
+-	}
+-
+-	else
+-		g_logger->Write( LOG_LEVEL_INFO, "Successfully destroyed window '%s'", TERM_TITLE[ m_termID ].c_str() );
+-
+-	m_window = 0;
+-}
+-
+-
+-/**
+- * @brief		Initializes the Terminal.
+- *
+- * @param[in]	pos			The position of the window.
+- * @param[in]	size		The size of the drawable area.
+- * @param[in]	visible		Whether or not the window is visible.
+- * @return		Whether or not the Terminal was successfully initialized.
+- **/
++    delete m_listenerList;
++    SDL_FreeSurface( m_canvas );
++    SDL_DestroyWindow( m_window );
++}
++
++/** Preserve the original five native windows and their padded client sizes. */
+ bool Terminal :: Init ( CoordI pos, DimI size, bool visible ) {
+-
+-	// Window style
+-	DWORD style = WS_OVERLAPPED | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CAPTION;
+-	DWORD styleExt = 0;
+-	
+-
+-	// Adjust the size to account for style
+-	RECT rect;
+-	rect.left = pos.m_x;
+-	rect.right = rect.left + size.m_x + TERM_PADDING.m_x * 2;
+-	rect.top = pos.m_y;
+-	rect.bottom = rect.top + size.m_y + TERM_PADDING.m_y * 2;
+-	m_termSize = DimI( rect.right - rect.left, rect.bottom - rect.top );
+-
+-	AdjustWindowRect( &rect, style, false );
+-
+-
+-	// Create the window
+-	m_window = CreateWindowEx( styleExt, "Terminal", TERM_TITLE[ m_termID ].c_str(), style,
+-							   rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, 0, 0, GetModuleHandle( 0 ), 0 );
+-	if ( !m_window ) {
+-
+-		int error = GetLastError();
+-		g_logger->Write( LOG_LEVEL_CRIT, "Failed to create window '%s' - error %d", TERM_TITLE[ m_termID ].c_str(), error );
+-		return false;
+-	}
+-	g_logger->Write( LOG_LEVEL_INFO, "Successfully created window '%s'", TERM_TITLE[ m_termID ].c_str() );
+-
+-
+-	// Get the device context
+-	m_dc = GetDC( m_window );
+-	if ( !m_dc ) {
+-
+-		int error = GetLastError();
+-		g_logger->Write( LOG_LEVEL_CRIT, "Failed to get device context for window '%s' - error %d", TERM_TITLE[ m_termID ].c_str(), error );
+-		return false;
+-	}
+-	g_logger->Write( LOG_LEVEL_INFO, "Successfully retrieved device context for window '%s'", TERM_TITLE[ m_termID ].c_str() );
+-
+-
+-	// Set the background color to black
+-	SetBkColor( m_dc, 0 );
+-
+-
+-	// Set the brush
+-	HBRUSH hBrush = CreateSolidBrush( RGB( 0, 0, 0 ) );
+-	SelectObject( m_dc, hBrush );
+-
+-
+-	// Tie this terminal to this window
+-	SetWindowLong( m_window, 0, (int)this );
+-
+-
+-	// Set the default font
+-	SetFont( DEFAULT_FONT_NAME, TERM_FONT_SIZE[ m_termID ] );
+-
+-
+-	// Show the window
+-	if ( visible )
+-		ShowWindow( m_window, SW_SHOW );
+-
+-	Refresh();
+-
+-	return true;
+-}
+-
+-
+-/**
+- * @brief		Adds a re-size listener to this. 
+- *
+- * @param[in]	listener	The listener.
+- **/
++    m_window = SDL_CreateWindow( TERM_TITLE[ m_termID ].c_str(), pos.m_x, pos.m_y,
++        size.m_x + TERM_PADDING.m_x * 2, size.m_y + TERM_PADDING.m_y * 2,
++        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN );
++    if ( !m_window ) {
++        g_logger->Write( LOG_LEVEL_CRIT, "Cannot create window '%s': %s", TERM_TITLE[ m_termID ].c_str(), SDL_GetError() );
++        return false;
++    }
++    SetFont( DEFAULT_FONT_NAME, TERM_FONT_SIZE[ m_termID ] );
++    if ( !m_font.m_handle || !m_canvas )
++        return false;
++    if ( visible )
++        SDL_ShowWindow( m_window );
++    Refresh();
++    return true;
++}
++
+ void Terminal :: AddListener ( TermListener *listener ) {
+-
+-	m_listenerList->push_back( listener );
+-}
+-
+-
+-/**
+- * @brief	Toggles whether or not the window is visible.
+- **/
++    m_listenerList->push_back( listener );
++}
++
+ void Terminal :: ToggleVisible ( ) {
+-
+-	int visible = IsWindowVisible( m_window );
+-
+-	if ( visible )
+-		ShowWindow( m_window, SW_HIDE );
+-	else
+-		ShowWindow( m_window, SW_SHOW );
+-}
+-
+-
+-/**
+- * @brief	Called by WndProc whenever this Terminal's window is re-sized.
+- *
+- * Re-sizes all the internal bufferes and informs any listeners that changes have been made.
+- **/
++    if ( SDL_GetWindowFlags( m_window ) & SDL_WINDOW_SHOWN )
++        SDL_HideWindow( m_window );
++    else {
++        SDL_ShowWindow( m_window );
++        Refresh();
++    }
++}
++
++/** Rebuild the retained image, then let the original layout listeners redraw. */
+ void Terminal :: WindowResized ( ) {
+-
+-	// Get the client size
+-	RECT rect;
+-	GetClientRect( m_window, &rect );
+-
+-	// Get how many characters will fit in the window size
+-	m_termSize = DimI( rect.right - rect.left, rect.bottom - rect.top );
+-	m_gridSize = m_termSize / m_font.m_size;
+-
+-
+-	// Inform listeners of the re-size
+-	foreach ( list< TermListener* >, m_listenerList ) {
+-	
+-		(*it)->TermResized( m_termID );
+-	}
+-}
+-
+-
+-/**
+- * @brief	Sets the Font to use when drawing text.
+- *
+- * @param[in]	fontName	The name of the Font. 
+- * @param[in]	size		The maximum size of the Font. 
+- **/
++    if ( !m_window || !m_font.m_handle )
++        return;
++    int width, height;
++    SDL_GetWindowSize( m_window, &width, &height );
++    SDL_Surface *canvas = SDL_CreateRGBSurfaceWithFormat( 0, width, height, 32, SDL_PIXELFORMAT_RGB888 );
++    if ( !canvas ) {
++        g_logger->Write( LOG_LEVEL_CRIT, "Cannot resize window '%s': %s", TERM_TITLE[ m_termID ].c_str(), SDL_GetError() );
++        return;
++    }
++    SDL_FillRect( canvas, 0, SDL_MapRGB( canvas->format, 0, 0, 0 ) );
++    SDL_FreeSurface( m_canvas );
++    m_canvas = canvas;
++    m_termSize = DimI( width, height );
++    // As in the original, divide the complete client extent by measured cells.
++    m_gridSize = m_termSize / m_font.m_size;
++    m_gridSize.m_x = MIN( MAX_TERM_SIZE, m_gridSize.m_x );
++    m_gridSize.m_y = MIN( MAX_TERM_SIZE, m_gridSize.m_y );
++    for ( int y = 0; y < m_gridSize.m_y; ++y )
++        for ( int x = 0; x < m_gridSize.m_x; ++x )
++            m_grid[ x ][ y ].m_dirty = true;
++    foreach ( list< TermListener* >, m_listenerList ) {
++        (*it)->TermResized( m_termID );
++    }
++    Refresh();
++}
++
+ void Terminal :: SetFont ( string fontName, DimI size ) {
+-
+-	// Get the font
+-	m_font = g_fontManager->GetFont( fontName, size, m_dc );
+-	SelectObject( m_dc, m_font.m_hFont );
+-
+-	// Get the actual font selected
+-	char buff[ 64 ];
+-	GetTextFace( m_dc, 64, buff );
+-
+-	if ( fontName != buff )
+-		g_logger->Write( LOG_LEVEL_WARN, "Selected font '%s' doesn't match the requested one '%s'", buff, fontName.c_str() );
+-
+-	// Signal a window resize
+-	WindowResized();
++    Font font = g_fontManager->GetFont( fontName, size );
++    if ( !font.m_handle )
++        return;
++    m_font = font;
++    WindowResized();
+ }
+ 
+ 
+@@ -332,13 +197,17 @@
+  **/
+ void Terminal :: SetChar ( int x, int y, char c, int foreColor, int backColor ) {
+ 
++	if ( x < 0 || y < 0 || x >= MAX_TERM_SIZE || y >= MAX_TERM_SIZE )
++		return;
++
+ 	// Don't dirty the cell if we don't have to
+ 	TermCell termCell( c, foreColor, backColor );
+ 	if ( m_grid[ x ][ y ] == termCell )
+ 		return;
+ 
+ 	m_grid[ x ][ y ] = termCell;
+-	m_grid[ x ][ y ].m_dirty = true;
++	if ( x >= 0 && y >= 0 && x < MAX_TERM_SIZE && y < MAX_TERM_SIZE )
++		m_grid[ x ][ y ].m_dirty = true;
+ }
+ 
+ 
+@@ -353,14 +222,7 @@
+  * @note		If not specified, the background color defaults to black.
+  **/
+ void Terminal :: SetChar ( CoordI pos, char c, int foreColor, int backColor ) {
+-
+-	// Don't dirty the cell if we don't have to
+-	TermCell termCell( c, foreColor, backColor );
+-	if ( m_grid[ pos.m_x ][ pos.m_y ] == termCell )
+-		return;
+-
+-	m_grid[ pos.m_x ][ pos.m_y ] = termCell;
+-	m_grid[ pos.m_x ][ pos.m_y ].m_dirty = true;
++    SetChar( pos.m_x, pos.m_y, c, foreColor, backColor );
+ }
+ 
+ 
+@@ -401,7 +263,8 @@
+  **/
+ void Terminal :: Dirtify ( int x, int y ) {
+ 
+-	m_grid[ x ][ y ].m_dirty = true;
++	if ( x >= 0 && y >= 0 && x < MAX_TERM_SIZE && y < MAX_TERM_SIZE )
++		m_grid[ x ][ y ].m_dirty = true;
+ }
+ 
+ 
+@@ -412,7 +275,7 @@
+  **/
+ void Terminal :: Dirtify ( CoordI pos ) {
+ 
+-	m_grid[ pos.m_x ][ pos.m_y ].m_dirty = true;
++	Dirtify( pos.m_x, pos.m_y );
+ }
+ 
+ 
+@@ -527,80 +390,75 @@
+ }
+ 
+ 
+-/**
+- * @brief	Tells the Terminal to refresh itself.
+- *
+- * @note	This can be called muliple times before the Terminal gets around to refreshing and it will still only refresh once.
+- **/
++/** Coalesce redraw requests through the same event pump as window events. */
+ void Terminal :: Refresh ( ) {
+-	
+-	if ( !m_refreshPending ) {
+-
+-		m_incremental = true;
+-		InvalidateRect( m_window, 0, true );
+-	}
+-
+-	m_refreshPending = true;
+-}
+-
+-
+-/**
+- * @brief	Draws dirty cells to the window.
+- *
+- * @note	This should never be called manually. All drawing is handled by the windows message loop.
+- **/
++    if ( !m_window || m_refreshPending )
++        return;
++    m_refreshPending = true;
++    SDL_Event event;
++    SDL_zero( event );
++    event.type = SDL_WINDOWEVENT;
++    event.window.windowID = SDL_GetWindowID( m_window );
++    event.window.event = SDL_WINDOWEVENT_EXPOSED;
++    if ( SDL_PushEvent( &event ) <= 0 ) {
++        g_logger->Write( LOG_LEVEL_WARN, "Cannot queue window redraw: %s", SDL_GetError() );
++        Draw();
++    }
++}
++
++/** Rasterize changed cells only, then compose the transient cyan look frame. */
+ void Terminal :: Draw ( ) {
+-
+-	// Pad the terminal
+-	Rectangle( m_dc, 0, 0, m_termSize.m_x, TERM_PADDING.m_y );
+-	Rectangle( m_dc, 0, m_termSize.m_y - TERM_PADDING.m_y, m_termSize.m_x, m_termSize.m_y );
+-
+-	Rectangle( m_dc, 0, 0, TERM_PADDING.m_x, m_termSize.m_y );
+-	Rectangle( m_dc, m_termSize.m_x - TERM_PADDING.m_x, 0, m_termSize.m_x, m_termSize.m_y );
+-
+-
+-	RECT rect;
+-	rect.left = TERM_PADDING.m_x;
+-	rect.top = TERM_PADDING.m_y;
+-	rect.right = rect.left + m_font.m_size.m_x;
+-	rect.bottom = rect.top + m_font.m_size.m_y;
+-
+-	for ( int y = 0; y < m_gridSize.m_y; y++ ) {
+-
+-		for ( int x = 0; x < m_gridSize.m_x; x++ ) {
+-
+-			// Only render dirty cells, or render all on a general redraw
+-			if ( m_grid[ x ][ y ].m_dirty || !m_incremental ) {
+-
+-				SetTextColor( m_dc, m_grid[ x ][ y ].m_foreColor );
+-				SetBkColor( m_dc, m_grid[ x ][ y ].m_backColor );
+-				DrawText( m_dc, (char*)&(m_grid[ x ][ y ].m_c), 1, &rect, DT_NOPREFIX | DT_CENTER| DT_SINGLELINE | DT_BOTTOM );
+-
+-				m_grid[ x ][ y ].m_dirty = false;
+-			}
+-
+-			rect.left += m_font.m_size.m_x;
+-			rect.right += m_font.m_size.m_x;
+-		}
+-
+-		rect.left = TERM_PADDING.m_x;
+-		rect.top += m_font.m_size.m_y;
+-		rect.right = rect.left + m_font.m_size.m_x;
+-		rect.bottom += m_font.m_size.m_y;
+-	}
+-
+-
+-	// Draw the look box
+-	if ( m_lookTarget.m_x != NO_LOOK_TARGET ) {
+-
+-		rect.left = m_lookTarget.m_x * m_font.m_size.m_x + TERM_PADDING.m_x;
+-		rect.top = m_lookTarget.m_y * m_font.m_size.m_y + TERM_PADDING.m_y;
+-		rect.right = rect.left + m_font.m_size.m_x;
+-		rect.bottom = rect.top + m_font.m_size.m_y;
+-		
+-		FrameRect( m_dc, &rect, m_lookBrush );
+-	}
+-
+-	m_incremental = false;
+-	m_refreshPending = false;
+-}
++    m_refreshPending = false;
++    if ( !m_window || !m_canvas || !(SDL_GetWindowFlags( m_window ) & SDL_WINDOW_SHOWN) )
++        return;
++
++    // A window surface is borrowed and must be retrieved again after resizing.
++    SDL_Surface *surface = SDL_GetWindowSurface( m_window );
++    if ( !surface ) {
++        g_logger->Write( LOG_LEVEL_WARN, "Cannot get window surface: %s", SDL_GetError() );
++        return;
++    }
++    SDL_Rect drawable = { TERM_PADDING.m_x, TERM_PADDING.m_y,
++        MAX( 0, m_termSize.m_x - TERM_PADDING.m_x * 2 ),
++        MAX( 0, m_termSize.m_y - TERM_PADDING.m_y * 2 ) };
++    SDL_SetClipRect( m_canvas, &drawable );
++    for ( int y = 0; y < m_gridSize.m_y; ++y ) {
++        for ( int x = 0; x < m_gridSize.m_x; ++x ) {
++            TermCell &cell = m_grid[ x ][ y ];
++            if ( !cell.m_dirty )
++                continue;
++            SDL_Rect rect = { TERM_PADDING.m_x + x * m_font.m_size.m_x,
++                TERM_PADDING.m_y + y * m_font.m_size.m_y, m_font.m_size.m_x, m_font.m_size.m_y };
++            SDL_FillRect( m_canvas, &rect, CellColor( m_canvas->format, cell.m_backColor ) );
++            if ( cell.m_c > ' ' && cell.m_c != 127 ) {
++                SDL_Surface *glyph = g_fontManager->GetGlyph( m_font, cell.m_c );
++                if ( glyph ) {
++                    SDL_SetSurfaceColorMod( glyph, cell.m_foreColor & 255,
++                        (cell.m_foreColor >> 8) & 255, (cell.m_foreColor >> 16) & 255 );
++                    SDL_Rect target = { rect.x + (rect.w - glyph->w) / 2,
++                        rect.y + rect.h - glyph->h, glyph->w, glyph->h };
++                    SDL_BlitSurface( glyph, 0, m_canvas, &target );
++                }
++            }
++            cell.m_dirty = false;
++        }
++    }
++    SDL_SetClipRect( m_canvas, 0 );
++    SDL_BlitSurface( m_canvas, 0, surface, 0 );
++
++    // The frame is never baked into the canvas, so moving/removing it leaves no trail.
++    if ( m_lookTarget.m_x >= 0 && m_lookTarget.m_y >= 0 &&
++         m_lookTarget.m_x < m_gridSize.m_x && m_lookTarget.m_y < m_gridSize.m_y ) {
++        int x = TERM_PADDING.m_x + m_lookTarget.m_x * m_font.m_size.m_x;
++        int y = TERM_PADDING.m_y + m_lookTarget.m_y * m_font.m_size.m_y;
++        SDL_Rect edges[ 4 ] = {
++            { x, y, m_font.m_size.m_x, 1 },
++            { x, y + m_font.m_size.m_y - 1, m_font.m_size.m_x, 1 },
++            { x, y, 1, m_font.m_size.m_y },
++            { x + m_font.m_size.m_x - 1, y, 1, m_font.m_size.m_y }
++        };
++        SDL_FillRects( surface, edges, 4, SDL_MapRGB( surface->format, 0, 255, 255 ) );
++    }
++    if ( SDL_UpdateWindowSurface( m_window ) < 0 )
++        g_logger->Write( LOG_LEVEL_WARN, "Cannot update window '%s': %s", TERM_TITLE[ m_termID ].c_str(), SDL_GetError() );
++}
+--- a/src/terminal.h
++++ b/src/terminal.h
+@@ -17,15 +17,17 @@
+  *	(at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
++// Modified 2026-10-15: port the native terminal and font facade to SDL2/SDL_ttf.
++
+ #ifndef TERMINAL_H
+ #define TERMINAL_H
+ 
+-#include "TermListener.h"
++#include "termlistener.h"
+ #include "fontmanager.h"
+ #include "look.h"
+ #include "box2i.h"
+ 
+-#include "ExtMath.h"
++#include "extmath.h"
+ 
+ 
+ const int MAX_TERM_SIZE			= 256;		/**< The maximum grid size of a Terminal. */
+@@ -61,7 +63,7 @@
+  *
+  * Whenever the game wants to draw something to the screen, it should use the functions provided in this class. An internal screen buffer
+  * keeps track of what should be drawn to each cell, and whether or not those cells are considered 'dirty'. The game can also trigger a
+- * refresh, which will trigger a windows paint message. To reduce flicker, cells are only drawn if they've actually changed since the last
++ * refresh, which queues an SDL window expose event. To reduce flicker, cells are only drawn if they've actually changed since the last
+  * drawing. 
+  *
+  * @author	Jake Keel
+@@ -73,8 +75,8 @@
+ private:
+ 	TERM_ID m_termID;										/**< Used to tell Terminals apart from each other. */
+ 
+-	HWND m_window;											/**< The windows window handle. */
+-	HDC m_dc;												/**< The windows device context handle. */
++	SDL_Window *m_window;                                  /**< Owned native window. */
++	SDL_Surface *m_canvas;                                 /**< Owned persistent cell image (without look cursor). */
+ 	DimI m_termSize;										/**< The size of the drawable area. */
+ 	list< TermListener* > *m_listenerList;					/**< A list of listeners for when this Terminal is re-sized. */
+ 
+@@ -84,9 +86,7 @@
+ 	DimI m_gridSize;										/**< The size of the grid within the drawable area. */
+ 
+ 	bool m_refreshPending;									/**< Whether or not a refresh has been requested. */
+-	bool m_incremental;										/**< Whether or not the refresh requested is an incremental one from the game. */
+ 
+-	HBRUSH m_lookBrush;										/**< The windows brush handle for drawing the look box. */
+ public:
+ 	CoordI m_lookTarget;									/**< The coordinate where the user is currently looking. */
+ 
+@@ -101,7 +101,7 @@
+ 	void AddListener ( TermListener *listener );
+ 
+ 	int GetTermID ( ) { return m_termID; }					/**< Returns the TERM_ID of the Terminal. */
+-	HWND GetWindow ( ) { return m_window; }					/**< Returns the windows window handle of the Terminal. */
++	SDL_Window *GetWindow ( ) { return m_window; }          /**< Returns the borrowed native window. */
+ 
+ 	bool Init ( CoordI pos, DimI size, bool visible );
+ 
+--- a/src/fontmanager.cpp
++++ b/src/fontmanager.cpp
+@@ -17,122 +17,102 @@
+  *	(at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
++// Modified 2026-10-15: port the native terminal and font facade to SDL2/SDL_ttf.
++
+ #include "fontmanager.h"
++#include "extmath.h"
+ 
++FontManager *g_fontManager = new FontManager();
+ 
+-FontManager *g_fontManager = new FontManager();			/**< The one and only instance of the FontManager class. */
+-
+-
+-/**
+- * @brief	Default constructor. 
+- *
+- * Initializes variables to their default values. 
+- **/
+-FontManager :: FontManager ( ) {
+-
+-	m_fontMap = new map< string, Font >;
+-
+-	m_resourceList = new list< string >;
++namespace {
++// DrawText used the Windows ANSI character set. Preserve its non-ASCII bytes.
++Uint16 CharacterCode ( unsigned char c ) {
++    static const Uint16 extended[ 32 ] = {
++        0x20ac, 0x0081, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021,
++        0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008d, 0x017d, 0x008f,
++        0x0090, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014,
++        0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x009d, 0x017e, 0x0178
++    };
++    return c >= 0x80 && c < 0xa0 ? extended[ c - 0x80 ] : c;
++}
+ }
+ 
+-
+-/**
+- * @brief	Destructor. 
+- *
+- * Frees any memory allocated on the heap. 
+- **/
+-FontManager :: ~FontManager ( ) {
+-
+-	SAFE_DELETE( m_fontMap );
+-
+-	// Remove all font resources
+-	foreach ( list< string >, m_resourceList ) {
+-	
+-		RemoveFontResource( it->c_str() );
+-		g_logger->Write( LOG_LEVEL_INFO, "Removed font resource '%s'", (*it).c_str() );
+-	}
+-	SAFE_DELETE( m_resourceList );
++FontManager :: FontManager ( ) {
+ }
+ 
++FontManager :: ~FontManager ( ) {
++    for ( map< GlyphKey, SDL_Surface* >::iterator it = m_glyphMap.begin();
++          it != m_glyphMap.end(); ++it )
++        SDL_FreeSurface( it->second );
+ 
+-/**
+- * @brief	Adds as resources any fonts found in the font directory.
+- *
+- * This function scans the Exalt font directory for fonts and attempts to add them as temporary
+- * resources. This eliminates the need for the end user to have the font installed on their system.
+- **/
+-void FontManager :: Init ( ) {
+-
+-	list< string > fileList = GetFileList( FONT_DIR );
+-
+-	foreach ( list< string >, &fileList ) {
+-	
+-		// Add the font as a resource
+-		if ( !AddFontResourceEx( (FONT_DIR + (*it)).c_str(), FR_PRIVATE, 0 ) )
+-			g_logger->Write( LOG_LEVEL_WARN, "Failed to add font resource for font '%s'", (*it).c_str() );
+-		else
+-			g_logger->Write( LOG_LEVEL_INFO, "Successfully added font resource '%s'", (*it).c_str() );
+-
+-		m_resourceList->push_back( *it );
+-	}
++    for ( map< string, Font >::iterator it = m_fontMap.begin();
++          it != m_fontMap.end(); ++it )
++        TTF_CloseFont( it->second.m_handle );
+ }
+ 
++/** Prime the one family requested by the original game; no system registration. */
++void FontManager :: Init ( ) {
++    GetFont( "Liberation Mono", DimI( 9, 14 ) );
++}
+ 
+-/**
+- * @brief	Gets a Font object with the specified attributes.
+- *
+- * Attempts to create a Win32 font with the exact attributes supplied. If the created font has bounds that are
+- * outside the size specified, the font is deleted and re-created with a smaller requested size. This process is
+- * repeated as many times as is necessary to get a font that fits within the size specified.
+- *
+- * @param[in]	name	The name of the font.
+- * @param[in]	size	The size of the font. 
+- * @param[in]	dc		The device context for which this font will be used.
+- * @return		The font object.
+- **/
+-Font FontManager :: GetFont ( string name, CoordI size, HDC dc ) {
++/** Select the largest font whose measured cells fit the requested dimensions. */
++Font FontManager :: GetFont ( string name, CoordI size ) {
++    string fullName = IntToStr( size.m_x ) + "x" + IntToStr( size.m_y ) + "." + name;
++    map< string, Font >::iterator cached = m_fontMap.find( fullName );
++    if ( cached != m_fontMap.end() )
++        return cached->second;
+ 
+-	string fullName = IntToStr( size.m_x ) + "x" + IntToStr( size.m_y ) + "." + name;
++    if ( name != "Liberation Mono" || size.m_x <= 0 || size.m_y <= 0 || !TTF_WasInit() ) {
++        g_logger->Write( LOG_LEVEL_CRIT, "Cannot load requested font '%s'", fullName.c_str() );
++        return Font();
++    }
+ 
+-	// Has this font been loaded yet ?
+-	map< string, Font >::iterator it = m_fontMap->find( fullName );
+-	if ( it != m_fontMap->end() )
+-		return it->second;
++    const string path = FONT_DIR + "liberation.ttf";
++    for ( int pointSize = size.m_y; pointSize > 0; --pointSize ) {
++        TTF_Font *handle = TTF_OpenFont( path.c_str(), pointSize );
++        if ( !handle ) {
++            g_logger->Write( LOG_LEVEL_CRIT, "Cannot open font '%s': %s", path.c_str(), TTF_GetError() );
++            return Font();
++        }
+ 
++        int width = 0;
++        bool metricsOK = true;
++        for ( int c = 32; c < 256; ++c ) {
++            Uint16 code = CharacterCode( (unsigned char)c );
++            if ( !TTF_GlyphIsProvided( handle, code ) )
++                continue;
++            int minX, maxX, minY, maxY, advance;
++            if ( TTF_GlyphMetrics( handle, code, &minX, &maxX, &minY, &maxY, &advance ) < 0 ) {
++                metricsOK = false;
++                break;
++            }
++            width = MAX( width, MAX( advance, maxX - MIN( 0, minX ) ) );
++        }
++        int height = TTF_FontHeight( handle );
++        if ( metricsOK && width > 0 && width <= size.m_x && height > 0 && height <= size.m_y ) {
++            Font font( handle, DimI( width, height ) );
++            m_fontMap.insert( make_pair( fullName, font ) );
++            g_logger->Write( LOG_LEVEL_INFO, "Loaded font '%s' with measured cells %dx%d", fullName.c_str(), width, height );
++            return font;
++        }
++        TTF_CloseFont( handle );
++    }
+ 
+-	// Create the font
+-	HFONT hFont = 0;
+-	TEXTMETRIC tm;
+-	memset( &tm, 0, sizeof( TEXTMETRIC ) );
++    g_logger->Write( LOG_LEVEL_CRIT, "No font size fits '%s'", fullName.c_str() );
++    return Font();
++}
+ 
+-	int curHeight = size.m_y;
++/** Cache alpha masks once per font/byte; callers color-modulate before blitting. */
++SDL_Surface *FontManager :: GetGlyph ( const Font &font, unsigned char c ) {
++    GlyphKey key( font.m_handle, c );
++    map< GlyphKey, SDL_Surface* >::iterator cached = m_glyphMap.find( key );
++    if ( cached != m_glyphMap.end() )
++        return cached->second;
+ 
+-	bool done = false;
+-	while ( !done ) {
+-
+-		done = true;
+-
+-		hFont = CreateFont( -curHeight, 0, 0, 0, FW_NORMAL, false, false, false, ANSI_CHARSET, OUT_DEFAULT_PRECIS,
+-							CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, FIXED_PITCH | FF_DONTCARE, name.c_str() );
+-
+-		SelectObject( dc, hFont );
+-		GetTextMetrics( dc, &tm );
+-
+-		if ( tm.tmMaxCharWidth > size.m_x || tm.tmAscent + tm.tmDescent - 1 > size.m_y ) {
+-
+-			curHeight--;
+-
+-			done = false;
+-			DeleteObject( hFont );
+-		}
+-	}
+-	
+-
+-	Font font( hFont, DimI( tm.tmMaxCharWidth, tm.tmAscent + tm.tmDescent - 1 ) );
+-	m_fontMap->insert( make_pair( fullName, font ) );
+-
+-	g_logger->Write( LOG_LEVEL_INFO, "Successfully created font '%s'", fullName.c_str() );
+-
+-	
+-	return font;
++    SDL_Color white = { 255, 255, 255, 255 };
++    SDL_Surface *glyph = TTF_RenderGlyph_Blended( font.m_handle, CharacterCode( c ), white );
++    if ( !glyph )
++        g_logger->Write( LOG_LEVEL_WARN, "Cannot render character %u: %s", (unsigned int)c, TTF_GetError() );
++    m_glyphMap.insert( make_pair( key, glyph ) );
++    return glyph;
+ }
+--- a/src/fontmanager.h
++++ b/src/fontmanager.h
+@@ -17,49 +17,38 @@
+  *	(at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
++// Modified 2026-10-15: port the native terminal and font facade to SDL2/SDL_ttf.
++
+ #ifndef FONT_MANAGER_H
+ #define FONT_MANAGER_H
+ 
+ #include <map>
++#include <string>
++#include <utility>
+ using namespace std;
+ 
+-#include "safemem.h"
+ #include "filesystem.h"
+-
+ #include "font.h"
+ 
++/** Owns shared TTF fonts and white glyph masks until all Terminals are gone. */
++class FontManager {
++private:
++    typedef pair< TTF_Font*, unsigned char > GlyphKey;
++    map< string, Font > m_fontMap;
++    map< GlyphKey, SDL_Surface* > m_glyphMap;
+ 
+-/**
+- * @class	FontManager
+- * @brief	Manages the creation of Win32 fonts.
+- *
+- * This class manages the creation and sharing of Win32 fonts. Any specific font need only be created
+- * once and can be shared by any number of Terminals after that. All font creation should be done through this class.
+- *
+- * @author	Jake Keel
+- * @date	9/22/2009
+- **/
+-class FontManager {
++    FontManager ( const FontManager& );
++    FontManager& operator = ( const FontManager& );
+ 
+-	// Vars
+-private:
+-	map< string, Font > *m_fontMap;				/**< A map from font name and dimensions to a Font object. */
+-	list< string > *m_resourceList;				/**< The list of font names loaded as resources. */
++public:
++    FontManager ( );
++    ~FontManager ( );
+ 
+-
+-	// Functions
+-public:
+-	FontManager ( );
+-	~FontManager ( );
+-
+-	void Init ( );
+-
+-	Font GetFont ( string name, CoordI size, HDC dc );
+-	
++    void Init ( );
++    Font GetFont ( string name, CoordI size );
++    SDL_Surface *GetGlyph ( const Font &font, unsigned char c );
+ };
+-
+ 
+ extern FontManager *g_fontManager;
+ 
+-
+ #endif
+--- a/src/font.cpp
++++ b/src/font.cpp
+@@ -17,30 +17,12 @@
+  *	(at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
++// Modified 2026-10-15: port the native terminal and font facade to SDL2/SDL_ttf.
++
+ #include "font.h"
+ 
+-
+-/**
+- * @brief	Default constructor. 
+- *
+- * Initializes variables to their default values. 
+- **/
+-Font :: Font ( ) {
+-
+-	m_hFont = 0;
++Font :: Font ( ) : m_handle( 0 ), m_size( 0, 0 ) {
+ }
+ 
+-
+-/**
+- * @brief	Constructor. 
+- *
+- * Initializes variables from parameters.
+- *
+- * @param[in]	hFont	An HFONT handle.
+- * @param[in]	size	The size of the font. 
+- **/
+-Font :: Font ( void *hFont, CoordI size ) {
+-
+-	m_hFont = hFont;
+-	m_size = size;
++Font :: Font ( TTF_Font *handle, CoordI size ) : m_handle( handle ), m_size( size ) {
+ }
+--- a/src/font.h
++++ b/src/font.h
+@@ -17,32 +17,22 @@
+  *	(at your option) any later version.
+  *----------------------------------------------------------------------*/
+ 
++// Modified 2026-10-15: port the native terminal and font facade to SDL2/SDL_ttf.
++
+ #ifndef FONT_H
+ #define FONT_H
+ 
++#include <SDL_ttf.h>
+ #include "vertex2i.h"
+ 
++/** A non-owning view of a font cached and owned by FontManager. */
++class Font {
++public:
++    TTF_Font *m_handle;
++    DimI m_size;
+ 
+-/**
+- * @class	Font
+- * @brief	A node class that stores a Win32 font handle and its dimensions.
+- *
+- * @author	Jake Keel
+- * @date	9/22/2009
+- **/
+-class Font {
+-
+-	// Vars
+-public:
+-	void *m_hFont;					/**< The font handle. */
+-	DimI m_size;					/**< The dimensions of the font. */
+-
+-
+-	// Functions
+-	Font ( );
+-	Font ( void *hFont, CoordI size );
+-
++    Font ( );
++    Font ( TTF_Font *handle, CoordI size );
+ };
+ 
+-
+ #endif
