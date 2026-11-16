@@ -1,0 +1,143 @@
+Infection 2013: original bitmap font notices
+==========================================
+
+The shipped data/dejavu16x16_gs_tc.png is the game's original 13360-byte
+512 by 128 bitmap, SHA256:
+cb17ade2c0a346af0de6f5d66877d68cf2736d1689ae7bc4dc4e34382e1720ce
+
+It uses the TCOD layout (32 columns by 8 rows, 16 by 16 pixels per glyph).
+It is not an ASCII-in-column font.  Comparison with the libtcod 1.5.1
+sample at commit a7cabfda0b0c770d4092f0dec02efbd2a3b6d990 found 237
+changed pixels in two glyph cells, (0,1) and (13,1); the other 254 cells
+are identical.  The sample is not substituted for the author's bitmap.
+The author's modifications are covered by the Luca Carbone BSD-2-Clause
+notice installed as license.txt.  The title image and all game data also
+remain the original archive files, not reconstructed assets.
+
+DejaVu's lineage statement and both full permission notices follow, from
+https://dejavu-fonts.github.io/License.html (retrieved 2026-10-24).
+The Arev notice is retained conservatively, without asserting a precise
+per-glyph Arev inventory.  Public domain applies to DejaVu's changes,
+not to the entire font.  The reserved-name conditions below remain in
+force; dejavu16x16_gs_tc.png contains none of the reserved names.
+
+DejaVu Fonts — License
+---------------------
+
+Fonts are © Bitstream (see below). DejaVu changes are in public domain.
+Explanation of copyright is on Gnome page on Bitstream Vera fonts
+(http://gnome.org/fonts/). Glyphs imported from Arev fonts are © Tavmjung
+Bah (see below)
+
+Bitstream Vera Fonts Copyright
+------------------------------
+
+Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved. Bitstream Vera
+is a trademark of Bitstream, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of the fonts accompanying this license ("Fonts") and associated
+documentation files (the "Font Software"), to reproduce and distribute
+the Font Software, including without limitation the rights to use, copy,
+merge, publish, distribute, and/or sell copies of the Font Software, and
+to permit persons to whom the Font Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright and trademark notices and this permission notice
+shall be included in all copies of one or more of the Font Software
+typefaces.
+
+The Font Software may be modified, altered, or added to, and in
+particular the designs of glyphs or characters in the Fonts may be
+modified and additional glyphs or characters may be added to the Fonts,
+only if the fonts are renamed to names not containing either the words
+"Bitstream" or the word "Vera".
+
+This License becomes null and void to the extent applicable to Fonts or
+Font Software that has been modified and is distributed under the
+"Bitstream Vera" names.
+
+The Font Software may be sold as part of a larger software package but
+no copy of one or more of the Font Software typefaces may be sold by
+itself.
+
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL
+BITSTREAM OR THE GNOME FOUNDATION BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL,
+OR CONSEQUENTIAL DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF THE USE OR INABILITY TO USE THE FONT
+SOFTWARE OR FROM OTHER DEALINGS IN THE FONT SOFTWARE.
+
+Except as contained in this notice, the names of Gnome, the Gnome
+Foundation, and Bitstream Inc., shall not be used in advertising or
+otherwise to promote the sale, use or other dealings in this Font
+Software without prior written authorization from the Gnome Foundation
+or Bitstream Inc., respectively. For further information, contact: fonts
+at gnome dot org.
+
+Arev Fonts Copyright
+--------------------
+
+Original text: http://tavmjong.free.fr/FONTS/ArevCopyright.txt
+
+Copyright (c) 2006 by Tavmjong Bah. All Rights Reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the fonts accompanying this license ("Fonts") and
+associated documentation files (the "Font Software"), to reproduce
+and distribute the modifications to the Bitstream Vera Font Software,
+including without limitation the rights to use, copy, merge, publish,
+distribute, and/or sell copies of the Font Software, and to permit
+persons to whom the Font Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright and trademark notices and this permission notice
+shall be included in all copies of one or more of the Font Software
+typefaces.
+
+The Font Software may be modified, altered, or added to, and in
+particular the designs of glyphs or characters in the Fonts may be
+modified and additional glyphs or characters may be added to the
+Fonts, only if the fonts are renamed to names not containing either
+the words "Tavmjong Bah" or the word "Arev".
+
+This License becomes null and void to the extent applicable to Fonts
+or Font Software that has been modified and is distributed under the
+"Tavmjong Bah Arev" names.
+
+The Font Software may be sold as part of a larger software package but
+no copy of one or more of the Font Software typefaces may be sold by
+itself.
+
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL
+TAVMJONG BAH BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+
+Except as contained in this notice, the name of Tavmjong Bah shall not
+be used in advertising or otherwise to promote the sale, use or other
+dealings in this Font Software without prior written authorization
+from Tavmjong Bah. For further information, contact: tavmjong @ free
+. fr.
+
+libtcod bitmap distribution provenance
+-------------------------------------
+
+The original data/fonts/README.txt from libtcod 1.5.1 is installed
+separately as libtcod-fonts-README.txt, from:
+https://raw.githubusercontent.com/libtcod/libtcod/a7cabfda0b0c770d4092f0dec02efbd2a3b6d990/data/fonts/README.txt
+
+Its general statement "These fonts are in public domain" is preserved as
+historical documentation, not used to override the specific Bitstream
+Vera and Arev notices above.  The renderer's full BSD-3-Clause license,
+credits, historical README-SDL and LodePNG codec sources/notices are
+installed alongside this file.  README-SDL concerns the old SDL 1.2
+bundling, not the licensing of the current Nixpkgs sdl12-compat/SDL2 runtime.

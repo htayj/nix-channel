@@ -1,0 +1,220 @@
+Build the original Linux source closure with current D and source-built
+Derelict, without Windows import libraries.  Replace removed Phobos paths
+with their current equivalents; explicit Throwable catches retain the old
+bare-catch semantics.  No gameplay, RNG, assets or disabled resize edits.
+
+--- a/src/main.d
++++ b/src/main.d
+@@ -3,6 +3,8 @@
+  * Author: Luca Carbone
+  ****************************************************************************/
+ import std.stdio;
++import std.string;
++import std.format;
+ 
+ import derelict.util.loader;
+ import derelict.tcod.libtcod;
+@@ -17,2 +19,0 @@
+-pragma(lib, "lib\\DerelictTCOD.lib");
+-pragma(lib, "lib\\DerelictUtil.lib"); 
+@@ -284,1 +284,1 @@
+-		string items = std.string.xformat("%d %s", count, item);
++		string items = std.format.format("%d %s", count, item);
+@@ -375,1 +375,1 @@
+-	TCOD_console_print(null, WIDTH - refWorld.mapName.length, 0, "%s", std.string.toStringz(refWorld.mapName));
++	TCOD_console_print(null, WIDTH - cast(int)refWorld.mapName.length, 0, "%s", std.string.toStringz(refWorld.mapName));
+@@ -403,1 +403,1 @@
+-	foreach(uint i, string s; menu) {
++	foreach(size_t i, string s; menu) {
+@@ -411,1 +411,1 @@
+-		TCOD_console_print(null, WIDTH/2, 20 + i, "%s", line);
++		TCOD_console_print(null, WIDTH/2, 20 + cast(int)i, "%s", line);
+--- a/src/system.d
++++ b/src/system.d
+@@ -5,6 +5,10 @@
+ import std.file;
+ import std.json;
+ import std.stdio;
++import std.string;
++import std.format;
++import std.math;
++import core.stdc.stdlib;
+ 
+ import derelict.tcod.libtcod;
+ import derelict.tcod.types;
+@@ -12,6 +16,7 @@
+ import characters;
+ import map;
+ import traits;
++import main;
+ import world;
+ 
+ /** Sets the reference world ******************************************/
+@@ -28,1 +33,1 @@
+-const size_t MAX_MESSAGES = 4;
++const uint MAX_MESSAGES = 4;
+@@ -65,1 +70,1 @@
+-		return obj.vars[name];
++		return obj.vars.get(name, 0);
+@@ -67,1 +72,1 @@
+-	catch {
++	catch (Throwable) {
+@@ -83,1 +88,1 @@
+-	catch {
++	catch (Throwable) {
+@@ -96,1 +101,1 @@
+-		return obj.inventory[item];
++		return obj.inventory.get(item, 0);
+@@ -98,1 +103,1 @@
+-	catch {
++	catch (Throwable) {
+@@ -116,1 +121,1 @@
+-		return obj.inventory[item];
++		return obj.inventory.get(item, 0);
+@@ -118,1 +123,1 @@
+-	catch {
++	catch (Throwable) {
+@@ -246,1 +251,1 @@
+-		log(std.string.xformat("Infected a cornerstone cell, %d remaining", refWorld.cellsLeft));
++		log(std.format.format("Infected a cornerstone cell, %d remaining", refWorld.cellsLeft));
+@@ -342,1 +347,1 @@
+-		std.c.stdlib.exit(0);
++		core.stdc.stdlib.exit(0);
+@@ -382,1 +387,1 @@
+-		std.c.stdlib.exit(0);
++		core.stdc.stdlib.exit(0);
+@@ -393,1 +398,1 @@
+-	foreach (uint i, Character character; refWorld.characters) {
++	foreach (size_t i, Character character; refWorld.characters) {
+@@ -402,1 +407,1 @@
+-		foreach (uint i, Character character; target.parent.spawns) {
++		foreach (size_t i, Character character; target.parent.spawns) {
+@@ -552,1 +557,1 @@
+-	TCOD_console_print(null, WIDTH - refWorld.mapName.length, 0, "%s", std.string.toStringz(refWorld.mapName));
++	TCOD_console_print(null, WIDTH - cast(int)refWorld.mapName.length, 0, "%s", std.string.toStringz(refWorld.mapName));
+--- a/src/world.d
++++ b/src/world.d
+@@ -5,6 +5,7 @@
+ import std.file;
+ import std.json;
+ import std.stdio;
++import std.format;
+ 
+ import derelict.tcod.libtcod;
+ import derelict.tcod.types;
+@@ -12,6 +13,7 @@
+ import characters;
+ import map;
+ import main;
++import system;
+ 
+ /* Some constants *****************************************************/
+ const uint SPAWN_BASE_PROB = 30; /// Spawn probability
+@@ -59,1 +61,1 @@
+-			cellsLeft = cast(ubyte)(jsLevel["cells"].uinteger);
++			cellsLeft = cast(ubyte)(jsLevel["cells"].integer);
+@@ -62,1 +64,1 @@
+-			map.initMap(jsLevel["tileset"].str, cast(ubyte)jsLevel["width"].uinteger, cast(ubyte)jsLevel["height"].uinteger, seed);
++			map.initMap(jsLevel["tileset"].str, cast(ubyte)jsLevel["width"].integer, cast(ubyte)jsLevel["height"].integer, seed);
+@@ -190,1 +192,1 @@
+-		foreach (uint i, Character character; this.characters) {
++		foreach (size_t i, Character character; this.characters) {
+@@ -205,1 +207,1 @@
+-		uint prob = (SPAWN_BASE_PROB - this.characters.length * (SPAWN_BASE_PROB / SPAWN_MAX));
++		uint prob = (SPAWN_BASE_PROB - cast(uint)this.characters.length * (SPAWN_BASE_PROB / SPAWN_MAX));
+@@ -242,1 +244,1 @@
+-					size_t id = cast(uint)TCOD_random_get_int(rng, 0, this.archetypes.length -1);
++					size_t id = cast(uint)TCOD_random_get_int(rng, 0, cast(int)(this.archetypes.length -1));
+@@ -277,1 +279,1 @@
+-				return std.string.xformat("%s (H: %d/%d)", c.description, system.getVar(c, "health"), system.getVar(c, "maxHealth"));
++				return std.format.format("%s (H: %d/%d)", c.description, system.getVar(c, "health"), system.getVar(c, "maxHealth"));
+@@ -287,1 +289,1 @@
+-				return std.string.xformat("%s (H: %d/%d)", c.description, system.getVar(c, "health"), system.getVar(c, "maxHealth"));
++				return std.format.format("%s (H: %d/%d)", c.description, system.getVar(c, "health"), system.getVar(c, "maxHealth"));
+--- a/src/derelict/util/sharedlib.d
++++ b/src/derelict/util/sharedlib.d
+@@ -43,1 +43,1 @@
+-        private import std.c.linux.linux;
++        private import core.sys.posix.dlfcn;
+--- a/src/characters.d
++++ b/src/characters.d
+@@ -104,3 +104,3 @@
+-				cast(ubyte)jsChar["color"].array[0].uinteger,
+-				cast(ubyte)jsChar["color"].array[1].uinteger,
+-				cast(ubyte)jsChar["color"].array[2].uinteger
++				cast(ubyte)jsChar["color"].array[0].integer,
++				cast(ubyte)jsChar["color"].array[1].integer,
++				cast(ubyte)jsChar["color"].array[2].integer
+@@ -213,1 +213,1 @@
+-		if(TCOD_random_get_int(rng, 0, (this.spawns.length+1) * (this.spawns.length+1)) == 0 && this.spawns.length < 4) {
++		if(TCOD_random_get_int(rng, 0, cast(int)((this.spawns.length+1) * (this.spawns.length+1))) == 0 && this.spawns.length < 4) {
+--- a/src/map.d
++++ b/src/map.d
+@@ -65,1 +65,1 @@
+-			foreach (int i, JSONValue row; jsCell.array) {
++			foreach (size_t i, JSONValue row; jsCell.array) {
+@@ -210,2 +210,2 @@
+-	size_t width = 0;
+-	size_t height = 0;
++	uint width = 0;
++	uint height = 0;
+@@ -236,3 +236,3 @@
+-				cast(ubyte)jsTiles["background"].array[0].uinteger,
+-				cast(ubyte)jsTiles["background"].array[1].uinteger,
+-				cast(ubyte)jsTiles["background"].array[2].uinteger
++				cast(ubyte)jsTiles["background"].array[0].integer,
++				cast(ubyte)jsTiles["background"].array[1].integer,
++				cast(ubyte)jsTiles["background"].array[2].integer
+@@ -241,6 +241,6 @@
+-				cast(ubyte)jsTiles["foreground"].array[0].uinteger,
+-				cast(ubyte)jsTiles["foreground"].array[1].uinteger,
+-				cast(ubyte)jsTiles["foreground"].array[2].uinteger,
+-				cast(ubyte)jsTiles["foreground"].array[3].uinteger,
+-				cast(ubyte)jsTiles["foreground"].array[4].uinteger,
+-				cast(ubyte)jsTiles["foreground"].array[5].uinteger
++				cast(ubyte)jsTiles["foreground"].array[0].integer,
++				cast(ubyte)jsTiles["foreground"].array[1].integer,
++				cast(ubyte)jsTiles["foreground"].array[2].integer,
++				cast(ubyte)jsTiles["foreground"].array[3].integer,
++				cast(ubyte)jsTiles["foreground"].array[4].integer,
++				cast(ubyte)jsTiles["foreground"].array[5].integer
+@@ -269,2 +269,2 @@
+-		this.width = width * CELL_SIZE;
+-		this.height = height * CELL_SIZE;
++		this.width = cast(uint)(width * CELL_SIZE);
++		this.height = cast(uint)(height * CELL_SIZE);
+@@ -299,1 +299,1 @@
+-					TCOD_map_set_properties (tcodMap, i, j, false, false);
++					TCOD_map_set_properties (tcodMap, cast(int)i, cast(int)j, false, false);
+@@ -302,1 +302,1 @@
+-					TCOD_map_set_properties (tcodMap, i, j, true, true);
++					TCOD_map_set_properties (tcodMap, cast(int)i, cast(int)j, true, true);
+@@ -333,1 +333,1 @@
+-			MapCell cell = cells[TCOD_random_get_int(rng, 0, cells.length-1)];
++			MapCell cell = cells[TCOD_random_get_int(rng, 0, cast(int)(cells.length-1))];
+@@ -400,1 +400,1 @@
+-			auto cell = cells[TCOD_random_get_int(rng, 0, cells.length-1)];
++			auto cell = cells[TCOD_random_get_int(rng, 0, cast(int)(cells.length-1))];
+@@ -435,1 +435,1 @@
+-	void computeFov (size_t centerX, size_t centerY) {
++	void computeFov (uint centerX, uint centerY) {
+@@ -463,1 +463,1 @@
+-				if (TCOD_map_is_in_fov(tcodMap, i, j)) {
++				if (TCOD_map_is_in_fov(tcodMap, cast(int)i, cast(int)j)) {
+@@ -466,1 +466,1 @@
+-					TCOD_console_put_char(console, ox + i, oy + j, map[j][i], TCOD_BKGND_SET);
++					TCOD_console_put_char(console, ox + cast(int)i, oy + cast(int)j, map[j][i], TCOD_BKGND_SET);
+@@ -472,1 +472,1 @@
+-					TCOD_console_put_char(console, ox + i, oy + j, map[j][i], TCOD_BKGND_SET);
++					TCOD_console_put_char(console, ox + cast(int)i, oy + cast(int)j, map[j][i], TCOD_BKGND_SET);
+--- a/src/traits.d
++++ b/src/traits.d
+@@ -12,6 +12,8 @@
+ import characters;
+ import system;
++import map;
++import world;
+ 
+ /**********************************************************************
+  * Container for all the traits definitions
+  **********************************************************************/
