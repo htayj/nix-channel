@@ -1,0 +1,336 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a36e676..83d577e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,6 +1,6 @@
+ cmake_minimum_required(VERSION 3.16)
+ # x-release-please-start-version
+-project(mushkin VERSION 0.1.0 LANGUAGES C CXX)
++project(mushkin VERSION 0.5.1 LANGUAGES C CXX)
+ # x-release-please-end
+
+ # C++ standard
+@@ -393,25 +393,9 @@ if(TARGET socket_core AND TARGET mime_core AND TARGET ssl_core AND TARGET llthre
+ endif()
+
+ # ========== Google Test Framework ==========
+-# Fetch GoogleTest for unit testing
+-include(FetchContent)
+-FetchContent_Declare(
+-    googletest
+-    GIT_REPOSITORY https://github.com/google/googletest.git
+-    GIT_TAG        v1.15.2  # Latest stable release
+-)
+-
+-# For Windows: Prevent overriding the parent project's compiler/linker settings
+-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+-
+-# Make GoogleTest available
+-FetchContent_MakeAvailable(googletest)
+-
+-# Suppress warnings from GoogleTest internals (char8_t conversion, etc.)
+-target_compile_options(gtest PRIVATE -w)
+-target_compile_options(gtest_main PRIVATE -w)
+-target_compile_options(gmock PRIVATE -w)
+-target_compile_options(gmock_main PRIVATE -w)
++# Use the distribution's GoogleTest.  FetchContent would make configuring an
++# otherwise offline source build depend on the network.
++find_package(GTest CONFIG REQUIRED)
+
+ # Testing
+ enable_testing()
+diff --git a/src/main.cpp b/src/main.cpp
+index 6dbe73a..afc7d7e 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -124,8 +124,8 @@ int main(int argc, char* argv[])
+     // Working directory is set to AppPaths::getAppDirectory() at startup
+     QStringList luaPaths = {
+         // Bundled modules first — prevents conflicts with incompatible user versions
+-        exeDir + "/../Resources/lua/?.lua",
+-        exeDir + "/../Resources/lua/?/init.lua",
++        exeDir + "/lua/?.lua",
++        exeDir + "/lua/?/init.lua",
+         "./?.lua",
+         "./lua/?.lua",
+         "./lua/?/init.lua",
+diff --git a/src/utils/app_paths.cpp b/src/utils/app_paths.cpp
+index a298143..abd4ff8 100644
+--- a/src/utils/app_paths.cpp
++++ b/src/utils/app_paths.cpp
+@@ -1,7 +1,8 @@
+ #include "app_paths.h"
+-#include <QCoreApplication>
+-#include <QDateTime>
+-#include <QDir>
++#include <QCoreApplication>
++#include <QDateTime>
++#include <QDir>
++#include <QStandardPaths>
+
+ namespace AppPaths {
+
+@@ -19,29 +20,30 @@ double appStartTime()
+     return s_appStartTime;
+ }
+
+-QString getAppDirectory()
+-{
+-    QString path = QCoreApplication::applicationDirPath();
+-
+-#ifdef Q_OS_MAC
+-    // If inside a .app bundle, go up to where the .app lives
+-    // Bundle structure: /path/to/mushkin.app/Contents/MacOS/mushkin
+-    // We want: /path/to/
+-    if (path.contains(".app/Contents/MacOS")) {
+-        QDir dir(path);
+-        dir.cdUp(); // MacOS -> Contents
+-        dir.cdUp(); // Contents -> mushkin.app
+-        dir.cdUp(); // mushkin.app -> containing folder
+-        return dir.absolutePath();
+-    }
+-#endif
+-
+-    return path;
+-}
++QString getAppDirectory()
++{
++    // A package installation is read-only.  Keep worlds, profiles, plugins,
++    // logs, downloaded MSP media, and the compatibility SQLite database in a
++    // per-user directory.  MUSHKIN_HOME is useful for portable installs and
++    // tests; otherwise follow XDG's data location.
++    QString path = qEnvironmentVariable("MUSHKIN_HOME");
++    if (path.isEmpty())
++        path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
++    if (path.isEmpty())
++        path = QDir::home().filePath(".local/share/mushkin");
++
++    QDir().mkpath(path);
++    return QDir(path).absolutePath();
++}
++
++QString getRuntimeDirectory()
++{
++    return QCoreApplication::applicationDirPath();
++}
+
+ QString getExecutableDirectory()
+ {
+-    return QCoreApplication::applicationDirPath();
++    return getRuntimeDirectory();
+ }
+
+ } // namespace AppPaths
+diff --git a/src/utils/app_paths.h b/src/utils/app_paths.h
+index 9d1dd45..a6383af 100644
+--- a/src/utils/app_paths.h
++++ b/src/utils/app_paths.h
+@@ -4,15 +4,14 @@
+
+ namespace AppPaths {
+
+-// Returns the base directory for application data (worlds, lua, plugins, etc.)
+-//
+-// On macOS .app bundles, this returns the directory containing the .app bundle,
+-// allowing users to place mushkin.app alongside their worlds/ and lua/ folders.
+-//
+-// On standalone binaries (all platforms), this returns the directory containing
+-// the executable.
+-QString getAppDirectory();
+-
++// Returns the writable base directory for worlds, logs, profiles, and plugins.
++// MUSHKIN_HOME overrides the XDG data location for portable installations.
++QString getAppDirectory();
++
++// Returns the read-only directory containing the installed executable and its
++// bundled Lua runtime.
++QString getRuntimeDirectory();
++
+ // Returns the directory containing the actual executable binary.
+ // Use this for resources that must be alongside the binary itself (e.g., bundled
+ // C libraries in lib/).
+diff --git a/src/world/script_engine.cpp b/src/world/script_engine.cpp
+index dc7118c..8cd266b 100644
+--- a/src/world/script_engine.cpp
++++ b/src/world/script_engine.cpp
+@@ -277,8 +277,8 @@ void ScriptEngine::openLua()
+     QString exeDir2 = AppPaths::getExecutableDirectory();
+     QString appDir = AppPaths::getAppDirectory();
+     QStringList luaPaths = {
+-        exeDir2 + "/../Resources/lua/?.lua",
+-        exeDir2 + "/../Resources/lua/?/init.lua",
++        exeDir2 + "/lua/?.lua",
++        exeDir2 + "/lua/?/init.lua",
+         appDir + "/?.lua",
+         appDir + "/lua/?.lua",
+         appDir + "/lua/?/init.lua",
+diff --git a/src/world/sound_manager.cpp b/src/world/sound_manager.cpp
+index 9be7b0b..94379bc 100644
+--- a/src/world/sound_manager.cpp
++++ b/src/world/sound_manager.cpp
+@@ -564,11 +564,22 @@ qint32 SoundManager::getSoundStatus(qint16 buffer)
+  * @param volume Volume (-100 to 0)
+  * @param buffer Buffer number (0 = auto, 1-10 = specific)
+  */
+-void SoundManager::playMSPSound(const QString& filename, const QString& url, bool loop,
+-                                double volume, qint16 buffer)
+-{
+-    // First, try to resolve the file locally
+-    QString fullPath = resolveFilePath(filename);
++void SoundManager::playMSPSound(const QString& filename, const QString& url, bool loop,
++                                double volume, qint16 buffer)
++{
++    // MSP filenames arrive from an untrusted server.  This protocol accepts
++    // a filename, not a relative path: reject path separators, dot paths, and
++    // other names whose basename differs before constructing either a cache
++    // path or a download URL.
++    const QString safeFilename = QFileInfo(filename).fileName();
++    if (safeFilename.isEmpty() || safeFilename == "." || safeFilename == ".." ||
++        safeFilename != filename) {
++        qWarning() << "MSP: refusing unsafe sound filename:" << filename;
++        return;
++    }
++
++    // First, try to resolve the file locally
++    QString fullPath = resolveFilePath(safeFilename);
+
+     if (QFile::exists(fullPath)) {
+         // File exists locally, play it
+@@ -577,8 +588,12 @@ void SoundManager::playMSPSound(const QString& filename, const QString& url, boo
+     }
+
+     // Check if we have it cached
+-    QString cacheDir = QDir::current().filePath("sounds/cached");
+-    QString cachedPath = QDir(cacheDir).filePath(filename);
++    const QString cacheDir = QDir::cleanPath(QDir::current().filePath("sounds/cached"));
++    const QString cachedPath = QDir::cleanPath(QDir(cacheDir).filePath(safeFilename));
++    if (!cachedPath.startsWith(cacheDir + QDir::separator())) {
++        qWarning() << "MSP: refusing cache path outside cache directory:" << filename;
++        return;
++    }
+
+     if (QFile::exists(cachedPath)) {
+         // Found in cache, play it
+@@ -596,7 +611,7 @@ void SoundManager::playMSPSound(const QString& filename, const QString& url, boo
+     QString downloadUrl = url;
+     if (!downloadUrl.endsWith('/'))
+         downloadUrl += '/';
+-    downloadUrl += filename;
++    downloadUrl += safeFilename;
+
+     qDebug() << "MSP: Downloading sound from:" << downloadUrl;
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 7916f4d..785fc1d 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -995,6 +995,7 @@ target_link_libraries(test-telnet-parser-gtest PRIVATE
+     test_main_core
+     Qt6::Gui
+     Qt6::Widgets
++    Qt6::Network
+     ui
+ )
+
+diff --git a/tests/test_telnet_parser_gtest.cpp b/tests/test_telnet_parser_gtest.cpp
+index 282dd98..d8eb04e 100644
+--- a/tests/test_telnet_parser_gtest.cpp
++++ b/tests/test_telnet_parser_gtest.cpp
+@@ -10,9 +10,16 @@
+ #include "../src/text/style.h"
+ #include "../src/world/telnet_parser.h"
+ #include "../src/world/world_document.h"
+-#include "fixtures/world_fixtures.h"
+-#include <gtest/gtest.h>
+-#include <span>
++#include "fixtures/world_fixtures.h"
++#include <gtest/gtest.h>
++#include <QCoreApplication>
++#include <QDir>
++#include <QElapsedTimer>
++#include <QFile>
++#include <QObject>
++#include <QTcpServer>
++#include <QTemporaryDir>
++#include <span>
+ #include <vector>
+ #include <zlib.h>
+
+@@ -397,16 +403,42 @@ TEST_F(TelnetParserTest, ATCP_Activation)
+     EXPECT_TRUE(tp().m_bClient_sent_IAC_DO[TELOPT_ATCP_OPT]);
+ }
+
+-TEST_F(TelnetParserTest, MSP_Activation)
+-{
++TEST_F(TelnetParserTest, MSP_Activation)
++{
+     doc->m_sound.use_msp = true;
+     feed({TELNET_IAC, TELNET_WILL, TELOPT_MSP_OPT});
+
+     EXPECT_TRUE(tp().m_bMSP);
+-    EXPECT_TRUE(tp().m_bClient_sent_IAC_DO[TELOPT_MSP_OPT]);
+-}
+-
+-// ========== Category 7: sendWindowSizes ==========
++    EXPECT_TRUE(tp().m_bClient_sent_IAC_DO[TELOPT_MSP_OPT]);
++}
++
++TEST_F(TelnetParserTest, MSP_PathTraversalFilenameRejected)
++{
++    QTemporaryDir temporary;
++    ASSERT_TRUE(temporary.isValid());
++    const QString oldDirectory = QDir::currentPath();
++    ASSERT_TRUE(QDir::setCurrent(temporary.path()));
++
++    QTcpServer server;
++    ASSERT_TRUE(server.listen(QHostAddress::LocalHost));
++    bool requested = false;
++    QObject::connect(&server, &QTcpServer::newConnection, [&] { requested = true; });
++
++    const QString escaped = QDir(temporary.path()).filePath("escaped.wav");
++    doc->PlayMSPSound("../../escaped.wav",
++                      QString("http://127.0.0.1:%1").arg(server.serverPort()), false, 0.0, 0);
++
++    QElapsedTimer timer;
++    timer.start();
++    while (timer.elapsed() < 250) {
++        QCoreApplication::processEvents();
++    }
++    EXPECT_FALSE(requested);
++    EXPECT_FALSE(QFile::exists(escaped));
++    EXPECT_TRUE(QDir::setCurrent(oldDirectory));
++}
++
++// ========== Category 7: sendWindowSizes ==========
+
+ TEST_F(TelnetParserTest, NAWS_NullSocket_NoCrash)
+ {
+diff --git a/src/world/lua_api/world_info.cpp b/src/world/lua_api/world_info.cpp
+index 1a69e74..1111111 100644
+--- a/src/world/lua_api/world_info.cpp
++++ b/src/world/lua_api/world_info.cpp
+@@ -9,4 +9,4 @@
+ // MUSHclient Qt version string
+ // x-release-please-start-version
+-#define MUSHCLIENT_QT_VERSION "0.1.0"
++#define MUSHCLIENT_QT_VERSION "0.5.1"
+ // x-release-please-end
+diff --git a/tests/test_lua_api_gtest.cpp b/tests/test_lua_api_gtest.cpp
+index 1111111..2222222 100644
+--- a/tests/test_lua_api_gtest.cpp
++++ b/tests/test_lua_api_gtest.cpp
+@@ -27,6 +27,14 @@ TEST_F(LuaApiTest, WorldTableExists)
+     lua_pop(L, 1);
+ }
+
++TEST_F(LuaApiTest, WorldVersionReportsPackagedRelease)
++{
++    executeLua("test_mushkin_version = world.Version()");
++
++    EXPECT_EQ(getGlobalString("test_mushkin_version"), "0.5.1")
++        << "world.Version() must report the packaged release";
++}
++
+ // Test 2: world.Note() works
+ TEST_F(LuaApiTest, WorldNote)
+ {
