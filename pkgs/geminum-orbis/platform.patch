@@ -1,0 +1,522 @@
+Port Geminum Orbis r59 to native ncurses on GNU/Linux.
+
+Upstream: https://svn.code.sf.net/p/adventurerpg/code/trunk/ (revision 59)
+Upstream-Status: Inappropriate [platform port of inactive upstream]
+
+The author's public-domain dedication is recorded at RogueBasin revision
+24451 (2011-04-21); SourceForge also records the project under GPLv2:
+https://roguebasin.com/api.php?action=compare&format=json&fromrev=24448&torev=24451
+https://sourceforge.net/rest/p/adventurerpg/
+This patch is released under the same public-domain dedication, with GPLv2
+as an alternative permission.
+
+Remove Win32/conio dependencies and unused console helpers.  Let curses
+manage the terminal, check the actual 80x25 minimum instead of attempting
+to resize a Windows console buffer, and restore the terminal on errors.
+Map PDCurses bright colors to the standard eight curses colors plus bold;
+check color capabilities and every init_pair result.  Replace active CP437
+byte strings with curses graphics (and the map's own fountain symbol), so
+map cells remain single-column glyphs rather than malformed UTF-8 bytes.
+
+Promote the random range width before multiplying by rand(): glibc's
+larger RAND_MAX otherwise overflows the upstream int multiplication.
+Keep the original inclusive range and RAND_MAX + 1.0 scaling.
+
+Fix bare refresh/endwin expressions and the missing quit-confirmation
+braces.  Draw_Tile has no return value or value-using callers, so declare
+it void instead of falling off a non-void function.  Leave upstream's
+unimplemented saving and all maps and game features intact.  Read the two
+original maps from GEMINUM_DATA_DIR, independently of the writable current
+directory used by the upstream highscores file.
+Skip CR bytes in both map parsers, matching Windows text-mode reads while
+preserving the original CRLF map files and existing LF row logic.
+
+--- a/misc.h
++++ b/misc.h
+@@ -10,14 +10,21 @@
+ #include <vector>
+ #include <fstream>
+ #include <string.h>
+-#include <conio.h>
+ #include <time.h>
+-#include <windows.h>
++#include <clocale>
+ #include <curses.h>
+ #include "color_defs.h"
+ #include "colors.h"
+ 
+ using namespace std;
++
++///Restore the terminal before reporting a fatal platform error.
++void terminal_error(const char *message)
++{
++    endwin();
++    cerr << "Geminum Orbis: " << message << '\n';
++    exit(EXIT_FAILURE);
++}
+ 
+ enum
+ {
+@@ -73,27 +80,7 @@
+ 	if(lownum > highnum)
+ 	swap(lownum, highnum);
+ 	int range = highnum - lownum + 1;
+-	return lownum + int(range * rand()/(RAND_MAX + 1.0));
+-}
+-
+-void GetXY(int &x,int &y)
+-{
+-     CONSOLE_SCREEN_BUFFER_INFO XYInfo;
+-     GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE),&XYInfo);
+-     x = XYInfo.dwCursorPosition.X;
+-     y = XYInfo.dwCursorPosition.Y;
+-}
+-
+-///Sets the console window's size(this is currently used in 'int Main()' to set the console window to the Windows default).
+-int setConsoleSize(int width, int height)
+-{
+-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+-    COORD scr_dim;
+-
+-    scr_dim.X = width;
+-    scr_dim.Y = height;
+-
+-    SetConsoleScreenBufferSize(hOut, scr_dim);
++	return lownum + int(double(range) * rand()/(RAND_MAX + 1.0));
+ }
+ 
+ ///Clears the top line(the line where game messages and the like are displayed).
+@@ -101,25 +88,7 @@
+ {
+      GotoTop();
+      mvprintw(print_y,print_x,"                                                                                ");
+-     refresh;
+-}
+-
+-///Clears the whole screen. This is usually handled by pdcurses now, however this function is kept around for 'quitting the game' scenarios.
+-void clrscr(void)
+-{
+-    COORD                       coordScreen = { 0, 0 };
+-    DWORD                       cCharsWritten;
+-    CONSOLE_SCREEN_BUFFER_INFO  csbi;
+-    DWORD                       dwConSize;
+-    HANDLE                      hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+-    GetConsoleScreenBufferInfo(hConsole, &csbi);
+-    dwConSize = csbi.dwSize.X * csbi.dwSize.Y;
+-    FillConsoleOutputCharacter(hConsole, TEXT(' '),
+-                               dwConSize, coordScreen, &cCharsWritten);
+-    GetConsoleScreenBufferInfo(hConsole, &csbi);
+-    FillConsoleOutputAttribute(hConsole, csbi.wAttributes,
+-                               dwConSize, coordScreen, &cCharsWritten);
+-    SetConsoleCursorPosition(hConsole, coordScreen);
++     refresh();
+ }
+ 
+     /**Temporary global variables*/
+@@ -341,7 +310,7 @@
+          white(true);
+          mvprintw(print_y,print_x,"@");/**We also print the player's character here.*/
+          white(false);
+-         refresh;
++         refresh();
+ }
+ 
+ ///Opens a screen that displays all sorts of information about the player's character.
+--- a/color_defs.h
++++ b/color_defs.h
+@@ -1,43 +1,16 @@
+ #ifndef color_defs_h
+ #define color_defs_h
+ 
+-/**
+-These are the colors that are available via pdcurses:
+-COLOR_BLACK
+-COLOR_RED
+-COLOR_GREEN
+-COLOR_YELLOW (a darkish yellow)
+-COLOR_BLUE
+-COLOR_MAGENTA (purple)
+-COLOR_CYAN
++/**Portable ncurses palette. Bright variants add A_BOLD in colors.h.*/
+ 
+-The remainder of the colors, we define for ourselves:
+-CLR_GRAY
+-CLR_DARK_GRAY
+-CLR_WHITE
+-CLR_BRIGHT_BLUE
+-CLR_BRIGHT_GREEN
+-CLR_BRIGHT_CYAN
+-CLR_BRIGHT_MAGENTA
+-CLR_BRIGHT_YELLOW(COLOR_YELLOW along with the attribute A_BOLD)
+-CLR_BRIGHT_RED(COLOR_RED along with the attribute A_BOLD)
+-*/
+-
+-/**12= Bright red
+-    14=Bright yellow
+-    11=Bright cyan
+-    9=Bright blue
+-
+-*/
+-
+-#define CLR_GRAY		    7
+-#define CLR_DARK_GRAY		8
+-#define CLR_BRIGHT_BLUE     9
+-#define CLR_BRIGHT_GREEN	10
+-#define CLR_BRIGHT_CYAN	    11
+-#define CLR_BRIGHT_RED      12
+-#define CLR_BRIGHT_MAGENTA	13
+-#define CLR_BRIGHT_YELLOW	14
+-#define CLR_WHITE		    15
++#define CLR_GRAY           COLOR_WHITE
++#define CLR_DARK_GRAY      COLOR_BLACK
++#define CLR_BRIGHT_BLUE    COLOR_BLUE
++#define CLR_BRIGHT_GREEN   COLOR_GREEN
++#define CLR_BRIGHT_CYAN    COLOR_CYAN
++#define CLR_BRIGHT_RED     COLOR_RED
++#define CLR_BRIGHT_MAGENTA COLOR_MAGENTA
++#define CLR_BRIGHT_YELLOW  COLOR_YELLOW
++#define CLR_WHITE          COLOR_WHITE
+ 
+ #endif
+--- a/colors.h
++++ b/colors.h
+@@ -65,59 +65,59 @@
+ void dark_gray(bool color)
+ {
+     if(color==true)
+-        attron(COLOR_PAIR(8));
++        attron(COLOR_PAIR(8) | A_BOLD);
+     if(color==false)
+-        attroff(COLOR_PAIR(8));
++        attroff(COLOR_PAIR(8) | A_BOLD);
+ }
+ 
+ void white(bool color)
+ {
+     if(color==true)
+-        attron(COLOR_PAIR(9));
++        attron(COLOR_PAIR(9) | A_BOLD);
+     if(color==false)
+-        attroff(COLOR_PAIR(9));
++        attroff(COLOR_PAIR(9) | A_BOLD);
+ }
+ 
+ void bright_blue(bool color)
+ {
+     if(color==true)
+-        attron(COLOR_PAIR(10));
++        attron(COLOR_PAIR(10) | A_BOLD);
+     if(color==false)
+-        attroff(COLOR_PAIR(10));
++        attroff(COLOR_PAIR(10) | A_BOLD);
+ }
+ 
+ void bright_green(bool color)
+ {
+     if(color==true)
+-        attron(COLOR_PAIR(11));
++        attron(COLOR_PAIR(11) | A_BOLD);
+     if(color==false)
+-        attroff(COLOR_PAIR(11));
++        attroff(COLOR_PAIR(11) | A_BOLD);
+ }
+ 
+ void bright_cyan(bool color)
+ {
+     if(color==true)
+-        attron(COLOR_PAIR(12));
++        attron(COLOR_PAIR(12) | A_BOLD);
+     if(color==false)
+-        attroff(COLOR_PAIR(12));
++        attroff(COLOR_PAIR(12) | A_BOLD);
+ }
+ 
+ void bright_purple(bool color)
+ {
+     if(color==true)
+-        attron(COLOR_PAIR(13));
++        attron(COLOR_PAIR(13) | A_BOLD);
+     if(color==false)
+-        attroff(COLOR_PAIR(13));
++        attroff(COLOR_PAIR(13) | A_BOLD);
+ }
+ 
+ void bright_yellow(bool color)
+ {
+     if(color==true){
+         attron(A_BOLD);
+-        attron(COLOR_PAIR(4));
++        attron(COLOR_PAIR(3));
+     }
+     if(color==false){
+-        attroff(COLOR_PAIR(4));
++        attroff(COLOR_PAIR(3));
+         attroff(A_BOLD);
+     }
+ }
+--- a/staticdungeons.h
++++ b/staticdungeons.h
+@@ -1,5 +1,9 @@
+ #ifndef staticdungeons_h
+ #define staticdungeons_h
++
++#ifndef GEMINUM_DATA_DIR
++#define GEMINUM_DATA_DIR "levels"
++#endif
+ 
+ ///Starting level/testing level. Temporary testbed for all sorts of features and whatnot.  One of two is randomly selected and generated.
+         int SDlvl_Start[100][42];/**We use this in place of the (usually randomly generated) tiles portion of the dungeon level. The following function actually generates this tile information
+@@ -22,10 +26,12 @@
+                 i=0;
+                 j=1;
+                 newline_detected=false;
+-                ifstream sdlvl ("sdlvl_starta.txt");
++                ifstream sdlvl (GEMINUM_DATA_DIR "/sdlvl_starta.txt");
+                 if(sdlvl.is_open()){
+                     while(!sdlvl.eof()){
+                         sdlvl.get(c);
++                        if(c=='\r')
++                            continue;/**Match Windows text-mode CRLF translation.*/
+                             if(c=='\n')
+                             newline_detected=true;/**We set newline_detected to true if the current character is a newline. If it is, we do not advance our tile coordinates(i and j) this
+                             iteration of our while loop.*/
+@@ -62,10 +68,12 @@
+                 i=0;
+                 j=1;
+                 newline_detected=false;
+-                ifstream sdlvl ("sdlvl_startb.txt");
++                ifstream sdlvl (GEMINUM_DATA_DIR "/sdlvl_startb.txt");
+                 if(sdlvl.is_open()){
+                     while(!sdlvl.eof()){
+                         sdlvl.get(c);
++                        if(c=='\r')
++                            continue;/**Match Windows text-mode CRLF translation.*/
+                             if(c=='\n')
+                             newline_detected=true;/**We set newline_detected to true if the current character is a newline. If it is, we do not advance our tile coordinates(i and j) this
+                             iteration of our while loop.*/
+--- a/game.h
++++ b/game.h
+@@ -9,7 +9,7 @@
+         clrline();
+         GotoTop();
+         mvprintw(print_y,print_x,"Save game? [yn] ");
+-        refresh;
++        refresh();
+         while(ch=getch()){
+         if(ch=='y'){
+         clrline();
+@@ -49,7 +49,6 @@
+      }
+      }
+      a_file.close();
+-     clrscr();
+      cout<<"Be seeing you...\n\nPress [Enter] to quit.";
+      cin.sync();
+      cin.get();
+@@ -62,7 +61,7 @@
+      clrline();
+      GotoTop();
+      mvprintw(print_y,print_x,"Are you sure you want to leave? [yn] ");
+-     refresh;
++     refresh();
+      while(ch=getch()){
+      if(ch=='n'){
+         clrline();
+@@ -70,7 +69,7 @@
+         mvprintw(print_y,print_x,"Nevermind.");
+      break;
+      }
+-     if(ch=='y')
++     if(ch=='y'){
+         savegame();
+         erase();
+         mvprintw(0,0,"Goodbye ");
+@@ -79,6 +78,7 @@
+         getch();
+         endwin();
+         exit(0);
++     }
+      }
+ }
+ 
+@@ -102,7 +102,7 @@
+             erase();
+             mvprintw(0,0,"Press any key to end...");
+             getch();
+-            endwin;
++            endwin();
+             exit(0);
+             break;
+          case 'm':
+@@ -399,7 +399,7 @@
+     bool extended_command=false;/**Used to determine if a recognized extended command was typed.*/
+                 clrline();
+                 GotoTop();
+-                mvprintw(print_y,print_x,"# ");refresh;
++                mvprintw(print_y,print_x,"# ");refresh();
+                 curs_set(1);
+                 echo();
+                 getnstr(input,8);
+@@ -416,7 +416,7 @@
+                 if(extended_command==false){
+                 clrline();
+                 GotoTop();
+-                mvprintw(print_y,print_x,"Unrecognized extended command.");refresh;
++                mvprintw(print_y,print_x,"Unrecognized extended command.");refresh();
+                 }
+ }
+ 
+--- a/geminumorbis.cpp
++++ b/geminumorbis.cpp
+@@ -117,7 +117,7 @@
+       erase();
+       GotoTop();
+       mvprintw(print_y,print_x,"\nGeminum Orbis Copyright 2006-2008\n               Created By: Dark_Oppressor\n\n\nWhat is your name? ");
+-      refresh;
++      refresh();
+       curs_set(1);/**This gives us a cursor. We will disable it again after the player has input their name.*/
+       echo();/**Here we temporarily enable echo so that our string is displayed as we type it.*/
+       getnstr(input,8);
+@@ -135,27 +135,28 @@
+ int main()
+ {
+     srand((unsigned) time(NULL));
+-    setConsoleSize(80,25);
++    setlocale(LC_ALL, "");
+     initscr();/**Start curses mode.*/
+-    raw();/**Disables line buffering.*/
+-    keypad(stdscr, TRUE);/**Allows use of function keys, arrow keys, etc.*/
+-    noecho();/**Don't echo() while we do getch*/
++    if (LINES < 25 || COLS < 80)
++        terminal_error("a terminal of at least 80 columns by 25 rows is required.");
++    if (raw() == ERR || keypad(stdscr, TRUE) == ERR || noecho() == ERR)
++        terminal_error("cannot initialize terminal input.");
+     curs_set(0);/**This makes the cursor invisible.*/
+-    start_color();/**Start color mode.*/
+-    /**Here we define all of our color pairs.*/
+-    init_pair(1,COLOR_RED,COLOR_BLACK);
+-    init_pair(2,COLOR_GREEN,COLOR_BLACK);
+-    init_pair(3,COLOR_YELLOW,COLOR_BLACK);
+-    init_pair(4,COLOR_BLUE,COLOR_BLACK);
+-    init_pair(5,COLOR_MAGENTA,COLOR_BLACK);
+-    init_pair(6,COLOR_CYAN,COLOR_BLACK);
+-    init_pair(7,CLR_GRAY,COLOR_BLACK);
+-    init_pair(8,CLR_DARK_GRAY,COLOR_BLACK);
+-    init_pair(9,CLR_WHITE,COLOR_BLACK);
+-    init_pair(10,CLR_BRIGHT_BLUE,COLOR_BLACK);
+-    init_pair(11,CLR_BRIGHT_GREEN,COLOR_BLACK);
+-    init_pair(12,CLR_BRIGHT_CYAN,COLOR_BLACK);
+-    init_pair(13,CLR_BRIGHT_MAGENTA,COLOR_BLACK);
++    if (!has_colors() || start_color() == ERR || COLORS < 8 || COLOR_PAIRS <= 13)
++        terminal_error("a color terminal with at least 8 colors and 14 pairs is required.");
++    if ((termattrs() & A_BOLD) == 0)
++        terminal_error("the terminal must support bold for bright colors.");
++    /**Use portable color indices, not the Windows console's palette.*/
++    const short foreground[] = {
++        COLOR_RED, COLOR_GREEN, COLOR_YELLOW, COLOR_BLUE,
++        COLOR_MAGENTA, COLOR_CYAN, CLR_GRAY, CLR_DARK_GRAY,
++        CLR_WHITE, CLR_BRIGHT_BLUE, CLR_BRIGHT_GREEN,
++        CLR_BRIGHT_CYAN, CLR_BRIGHT_MAGENTA
++    };
++    for (short pair = 1; pair <= 13; ++pair) {
++        if (init_pair(pair, foreground[pair - 1], COLOR_BLACK) == ERR)
++            terminal_error("cannot initialize terminal colors.");
++    }
+     ///I am currently just saving the highscores work until later.
+     ifstream a_file ("highscores");
+     if (!a_file.is_open()){
+--- a/dungeongen.h
++++ b/dungeongen.h
+@@ -517,7 +517,7 @@
+ }
+ 
+ /**Used to draw a specific tile.*/
+-int Draw_Tile(int c,int d)
++void Draw_Tile(int c,int d)
+ {
+     GotoXY(c,d);
+     //Field_of_Vision(); Call the field of vision function to determine whether or not the current tile can be seen.
+@@ -526,7 +526,7 @@
+     switch (dunlevel[dlvl].tiles[c][d]){
+            /**Floor tile.*/
+            case 0:
+-                mvprintw(d,c,"\xFA");
++                mvaddch(d,c,ACS_BULLET);
+                 break;
+            /**Wall tile.*/
+            case 1:
+@@ -583,7 +583,7 @@
+                break;
+            }*/
+                 //cout<<" ";
+-                mvprintw(d,c,"\xDB");
++                mvaddch(d,c,ACS_BLOCK);
+                 break;
+            /**Upstairs.*/
+            case 2:
+@@ -602,29 +602,28 @@
+            /**Open door.*/
+            case 5:
+                 yellow(true);
+-                mvprintw(d,c,"\xFE");
++                mvaddch(d,c,ACS_BLOCK);
+                 yellow(false);
+                 break;
+            /**Fountain.*/
+            case 6:
+                 blue(true);
+-                mvprintw(d,c,"\xF4");
++                mvaddch(d,c,'{');
+                 blue(false);
+                 break;
+            /**Secret floor tile. Looks and acts like a wall until discovered by the player.*/
+            case 7:
+-                mvprintw(d,c,"\xDB");
++                mvaddch(d,c,ACS_BLOCK);
+                 break;
+            /**Hallway. Functionally identical to floor tiles.*/
+            case 8:
+-                mvprintw(d,c,"\xB1");
++                mvaddch(d,c,ACS_CKBOARD);
+                 break;
+     }
+     }
+     /**If the tile cannot currently be seen by the player, just show a blank space there.*/
+     if(dunlevel[dlvl].seen[c][d]==0)
+     mvprintw(d,c," ");
+-    refresh;
+ }
+ 
+ /**Draw the entire dungeon, then draw the nice little status bar on the bottom of the screen.*/
+@@ -643,9 +642,9 @@
+          GotoTop();
+          printw("Merry Christmas!");
+          GotoChar();
+-         refresh;
+-         }
+-         refresh;
++         refresh();
++         }
++         refresh();
+ }
+ 
+ /**When returning to a previously visited level of the dungeon(coming from a lower level), this function places the player on the upstairs.*/
+@@ -683,7 +682,7 @@
+ {
+      GotoTop();
+      mvprintw(print_y,print_x,"Do you really want to leave the dungeon? [yn] ");
+-     refresh;
++     refresh();
+      while(ch=getch()){
+             if(ch=='y'){
+                 erase();
+@@ -691,8 +690,8 @@
+                 /**ofstream a_file ("highscores",ios::app);
+                 a_file<<name<<" "<<explvl<<" "<<maxdlvl+1<<" "<<date<<" "<<howyouleft<<"\n";
+                 a_file.close();*/
++                refresh();
+                 endwin();
+-                clrscr();
+                 cout<<name<<" exited the dungeon at level "<<explvl<<" on "<<date<<".";
+                 /**ifstream b_file ("highscores");
+                 b_file>>str; cout<<"Name:"<<str<<", "; b_file>>str; cout<<"ExpLvl:"<<str<<", "; b_file>>str; cout<<"DLvl:"<<str<<", "; b_file>>str; cout<<"Date:"<<str<<", "; b_file>>howyouleft; if(howyouleft==0) cout<<"Fled the dungeon"<<"\n";

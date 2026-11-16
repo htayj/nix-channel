@@ -1,0 +1,32 @@
+Geminum Orbis: downstream licensing and credits record
+
+Source: https://svn.code.sf.net/p/adventurerpg/code/trunk
+Subversion revision: 59 (2009-02-04)
+
+Original startup notice (geminumorbis.cpp):
+Geminum Orbis Copyright 2006-2008
+Created By: Dark_Oppressor
+
+Original credits (misc.h):
+Programming: Dark_Oppressor
+Playtesters: Vannilesoep, suicide_mission, Spoon[], ^Slick
+Gr33tz to: DJNsomniac
+
+The author Kevin Wells, also known as Dark_Oppressor,
+set the RogueBasin Geminum Orbis licensing field to:
+|licensing = Public domain
+Revision 24451, Dark Oppressor, 2011-04-21T04:47:32Z.
+https://roguebasin.com/index.php?title=Geminum_Orbis&oldid=24451
+https://roguebasin.com/api.php?action=compare&format=json&fromrev=24448&torev=24451
+
+This package selects that author-side public-domain
+dedication for the game and its original maps.
+
+Separately, SourceForge identifies the project license as:
+GNU General Public License version 2.0 (GPLv2)
+https://sourceforge.net/projects/adventurerpg/
+https://sourceforge.net/rest/p/adventurerpg/
+The metadata edit date and per-version scope are unknown.
+It supplies no explicit dual-license or fallback clause.
+These are distinct project-level statements; this notice
+does not add an upstream license or relicense dependencies.
