@@ -8,6 +8,17 @@ description = "Public agent-signing fingerprint, not an API credential"
 regexTarget = "secret"
 regexes = ['''^D0BEDCD5B63A4040FBC5BC00A6398F53FCEC1C10$''']
 
+# The Sourcegraph rule accepts any bare 40-digit hexadecimal token once the
+# word "sourcegraph" occurs in a file, and one grammar repository belongs to
+# the sourcegraph organisation.
+[[allowlists]]
+description = "Pinned Git revisions in the Emigo grammar notice manifest"
+targetRules = ["sourcegraph-access-token"]
+condition = "AND"
+paths = ['''(?:^|/)pkgs/emacs-emigo/grammar-notices\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"rev": "[0-9a-f]{40}",?\s*$''']
+
 # Fail on private-key headers even if only a fragment has been pasted.
 [[rules]]
 id = "private-key-header"
