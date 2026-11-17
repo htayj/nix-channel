@@ -1,0 +1,25 @@
+Replace the obsolete GCC cast-lvalue increment with an explicit byte read
+and pointer assignment.  Keep the shared cursor as const void * for its
+file and memory source roles, while advancing memory sources by one byte.
+
+--- a/src/src/rle.c
++++ b/src/src/rle.c
+@@ -16,6 +16,7 @@
+  * along with this program; if not, write to the Free Software
+  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+  * }}} */
++/* Modified 2026-10-09: advance the RLE byte cursor without a cast lvalue. */
+ // rle.c
+ /// @file
+ /// @brief Code for run-length-encoding compression.
+@@ -342,7 +343,9 @@
+ //{{{
+ static unsigned char _rleread_ptr(void)
+ {
+-	return *( ((const unsigned char*)_rlepos) ++);
++	unsigned char value = *(const unsigned char*)_rlepos;
++	_rlepos = (const unsigned char*)_rlepos + 1;
++	return value;
+ }
+ //}}}
+ 
