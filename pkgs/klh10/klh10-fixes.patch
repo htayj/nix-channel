@@ -1,0 +1,74 @@
+--- a/src/klh10.c
++++ b/src/klh10.c
+@@ -378,7 +378,7 @@
+ #ifdef KLH10_CLIENT
+     fprintf(f, " (%s)", KLH10_CLIENT);
+ #endif
+-#if defined(__DATE__) && defined(__TIME__)
++#if 0 /* No build timestamp: keep the binaries reproducible. */
+     fprintf(f, " built %s %s", __DATE__, __TIME__);
+ #endif
+     fputc('\n', f);
+@@ -674,8 +674,8 @@
+ 
+ #define KLH10_SWITCHES \
+     swidef(SWI_BKGD,    "background"),	/* Run in bkgnd mode */\
+-    swidef(SWI_HELP,    "help"),	/* Not yet */\
+-    swidef(SWI_VERSION, "version")	/* Not yet */
++    swidef(SWI_HELP,    "help"),	/* Informational switch */\
++    swidef(SWI_VERSION, "version")	/* Informational switch */
+ enum {
+ # define swidef(i,s) i
+ 	KLH10_SWITCHES
+@@ -689,7 +689,7 @@
+ 	, NULL
+ };
+ 
+-static char usage[] = "Usage: klh10 [-background] [initfile]\n";
++static char usage[] = "Usage: klh10 [-background] [-help|--help] [-version|--version] [initfile]\n";
+ 
+ void
+ swinit(int ac, char **av)
+@@ -710,12 +710,22 @@
+ 	    initfile = cp;
+ 	    continue;
+ 	}
+-	res = s_xkeylookup(cp+1, (void *)switab, sizeof(switab[0]),
++	res = s_xkeylookup(cp + (cp[1] == '-' ? 2 : 1), (void *)switab, sizeof(switab[0]),
+ 			   (voidp_t *)NULL, (voidp_t *)NULL, &kx1, &kx2);
+ 	if (res == 1) switch (kx1) {
+ 	    case SWI_BKGD:
+ 		proc_bkgd = TRUE;
+ 		continue;
++	    case SWI_HELP:
++		fputs(usage, stdout);
++		fputs("Start without an initfile for the console; "
++		      "type help for commands.\n", stdout);
++		os_exit(0);
++		return;
++	    case SWI_VERSION:
++		pversion(stdout);
++		os_exit(0);
++		return;
+ 	}
+ 
+ 	/* Fall through to here if bad switch or something else wrong */
+--- a/src/tapedd.c
++++ b/src/tapedd.c
+@@ -482,6 +482,7 @@
+     /* Do it! */
+     fprintf(logfile, "; Copying from \"%s\" to \"%s\"...\n", dvi.d_path,
+ 		dvo.d_path ? dvo.d_path : NULLDEV);
++    ret = TRUE;
+     if (!docopy()) {
+ 	fprintf(logfile, "; Stopped unexpectedly.\n");
+ 	ret = FALSE;
+@@ -505,7 +506,7 @@
+ 
+ int docopy(void)
+ {
+-    int err, ret = TRUE;
++    int err = 0, ret = TRUE;
+     int done = FALSE;
+ 
+     /* If skipping input, do that first */
