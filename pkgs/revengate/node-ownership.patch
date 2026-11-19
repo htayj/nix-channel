@@ -1,0 +1,60 @@
+Give transient nodes explicit scene-tree lifetimes.
+
+Attach the default deck builder to its dungeon and the deferred-destruction
+limbo node to Main so they are freed with their scenes.  Queue removed HUD
+command buttons for deletion.  Keep existing deferred node destruction and
+gameplay behavior unchanged.
+
+Free each temporary dynamic-highlight node after packing its scene data.
+The scene tile source retains the PackedScene, not the template node; the
+TileMapLayer still owns and frees the separately instantiated visible tiles.
+
+--- a/src/dungeons/dungeon.gd
++++ b/src/dungeons/dungeon.gd
+@@ -57,6 +57,7 @@
+ 	var deck_builders = find_children("", "DeckBuilder", false)
+ 	if deck_builders.is_empty():
+ 		deck_builder = load("res://src/default_deck_builder.tscn").instantiate()
++		add_child(deck_builder)
+ 	else:
+ 		deck_builder = deck_builders[0]
+ 
+--- a/src/main.gd
++++ b/src/main.gd
+@@ -59,6 +59,7 @@
+ 		is_active = false
+ 
+ func _ready():
++	add_child(limbo)
+ 	# Quests
+ 	quests = [
+ 		Quest.new("quest-lost-cards", "The Audition",
+--- a/src/hud.gd
++++ b/src/hud.gd
+@@ -111,6 +111,7 @@
+ 	## Add the main command button to the left button bar
+ 	for btn in %LButtonBar.find_children("", "CommandButton", false, false):
+ 		%LButtonBar.remove_child(btn)
++		btn.queue_free()
+ 	for cmd in %CommandPack.get_all_commands(true, index):
+ 		if not cmd.is_cheat and not cmd.is_debug:
+ 			var btn = CommandButton.new(cmd, hero_coord, true)
+@@ -124,6 +125,7 @@
+ func _init_cheatsbar_commands(hero_coord:Vector2i, index):
+ 	for btn in %CheatsBar.find_children("", "CommandButton", false, false):
+ 		%CheatsBar.remove_child(btn)
++		btn.queue_free()
+ 	var is_debug = Utils.is_debug()
+ 	for cmd in %CommandPack.get_all_commands(true, index):
+ 		if cmd.is_cheat or is_debug and cmd.is_debug:
+--- a/src/viewport.gd
++++ b/src/viewport.gd
+@@ -67,6 +67,8 @@
+ 		tile.modulate = tile_color
+ 	var scene = PackedScene.new()
+ 	scene.pack(tile)
++	# Packing retains the scene data, not ownership of this template node.
++	tile.free()
+ 	var id = source.create_scene_tile(scene)
+ 	highlight_names[tile_name] = id
+ 
