@@ -1,0 +1,56 @@
+From: Taylor's Guix channel
+Subject: [PATCH] key encoding: encode XKB Meta as terminal Alt
+
+Keep GLFW_MOD_META intact until the child-process encoding boundary.  Kitty
+therefore still resolves meta+ shortcuts against the raw GLFW event, while
+children receive the conventional terminal Alt encoding.  This deliberately
+does not alter GLFW/XKB modifier detection or physical Alt.
+
+diff --git a/kitty/key_encoding.c b/kitty/key_encoding.c
+index fb87ca13..77d8517a 100644
+--- a/kitty/key_encoding.c
++++ b/kitty/key_encoding.c
+@@ -35,6 +35,15 @@ typedef struct {
+ static void
+ convert_glfw_mods(int mods, KeyEvent *ev, const unsigned key_encoding_flags) {
+     if (!key_encoding_flags) mods &= ~GLFW_LOCK_MASK;
++    /*
++     * This function is reached only while encoding an already-dispatched
++     * event for the terminal child.  Retain raw GLFW_MOD_META for Kitty's
++     * shortcut matcher, but encode it as conventional terminal Alt here.
++     * Replacing, rather than adding, the bit gives legacy applications their
++     * ESC-prefixed Alt chords and reports Alt (not a second Meta bit) through
++     * Kitty's extended keyboard protocol.  All other modifier bits remain.
++     */
++    if (mods & GLFW_MOD_META) mods = (mods & ~GLFW_MOD_META) | GLFW_MOD_ALT;
+     ev->mods.alt = (mods & GLFW_MOD_ALT) > 0, ev->mods.ctrl = (mods & GLFW_MOD_CONTROL) > 0, ev->mods.shift = (mods & GLFW_MOD_SHIFT) > 0,
+     ev->mods.super = (mods & GLFW_MOD_SUPER) > 0, ev->mods.hyper = (mods & GLFW_MOD_HYPER) > 0, ev->mods.meta = (mods & GLFW_MOD_META) > 0;
+     ev->mods.numlock = (mods & GLFW_MOD_NUM_LOCK) > 0, ev->mods.capslock = (mods & GLFW_MOD_CAPS_LOCK) > 0;
+diff --git a/kitty_tests/keys.py b/kitty_tests/keys.py
+index 57010863..5d46417f 100644
+--- a/kitty_tests/keys.py
++++ b/kitty_tests/keys.py
+@@ -422,9 +422,23 @@ def mkp(name, *a, **kw):
+         ae(q(action=repeat), 'a')
+         ae(q(action=release), '')
+ 
++        # kitty-bitmap encodes raw GLFW Meta as terminal Alt only after
++        # shortcut dispatch.  Test both legacy and extended-key paths here;
++        # the modifier conversion keeps all non-Meta modifier bits intact.
++        ae(q(mods=meta), '\x1ba')
++        ae(q(mods=meta | shift, shifted_key=ord('A')), '\x1bA')
++        ae(q(mods=meta | ctrl), '\x1b\x01')
++        ae(q(mods=meta | super), csi(alt | super, ord('a')))
++        ae(q(mods=meta | hyper), csi(alt | hyper, ord('a')))
++        ae(q(mods=alt), '\x1ba')
++
+         # test disambiguate
+         dq = partial(enc, key_encoding_flags=0b1)
+         ae(dq(ord('a')), 'a')
++        ae(dq(ord('a'), mods=meta), csi(alt, ord('a')))
++        ae(dq(ord('a'), mods=meta | ctrl), csi(alt | ctrl, ord('a')))
++        ae(dq(ord('a'), mods=meta | shift), csi(alt | shift, ord('a')))
++        ae(dq(ord('a'), mods=meta | super | hyper), csi(alt | super | hyper, ord('a')))
+         ae(dq(defines.GLFW_FKEY_ESCAPE), csi(num=27))
+         ae(dq(defines.GLFW_FKEY_ENTER), '\r')
+         ae(dq(defines.GLFW_FKEY_ENTER, mods=shift), csi(shift, 13))

@@ -1,0 +1,57 @@
+From: Guix channel kitty-bitmap maintainers
+Subject: [PATCH] freetype: use active strike metrics for bitmap faces
+
+Provenance: this-is-fine.io's Kitty bitmap-font analysis,
+https://this-is-fine.io/posts/20260619-kitty-bitmap-fonts/ (the first three
+metric substitutions, independently reviewed against Kitty 0.46.2).  The
+fourth substitution below is channel-authored hardening for Kitty's separate
+live-resize rendering path.  FreeType bitmap faces have no scalable
+design-unit metrics.  Kitty already selects their active strike with
+FT_Select_Size(), but these call sites then convert zero design metrics using
+x_scale or y_scale.  FT_Size_Metrics height, ascender, and max_advance are
+26.6 pixel values for the selected bitmap strike.  This patch is separate
+from the AUR default-selection patch.
+
+diff --git a/kitty/freetype.c b/kitty/freetype.c
+index 3ea800dd..79830d1d 100644
+--- a/kitty/freetype.c
++++ b/kitty/freetype.c
+@@ -154,7 +154,7 @@ get_height_for_char(Face *self, char ch) {
+     unsigned int ans = 0;
+     int glyph_index = FT_Get_Char_Index(self->face, ch);
+     if (load_glyph(self, glyph_index, FT_LOAD_DEFAULT)) {
+-        unsigned int baseline = font_units_to_pixels_y(self, self->metrics.ascender);
++        unsigned int baseline = self->is_scalable ? (unsigned int)font_units_to_pixels_y(self, self->metrics.ascender) : (unsigned int)ceil((double)self->face->size->metrics.ascender / 64.0);
+         FT_GlyphSlotRec *glyph = self->face->glyph;
+         FT_Bitmap *bm = &glyph->bitmap;
+         if (glyph->bitmap_top <= 0 || (glyph->bitmap_top > 0 && (unsigned int)glyph->bitmap_top < baseline)) { ans = baseline - glyph->bitmap_top + bm->rows; }
+@@ -164,7 +164,7 @@ get_height_for_char(Face *self, char ch) {
+ 
+ static unsigned int
+ calc_cell_height(Face *self, bool for_metrics) {
+-    unsigned int ans = font_units_to_pixels_y(self, self->metrics.height);
++    unsigned int ans = self->is_scalable ? (unsigned int)font_units_to_pixels_y(self, self->metrics.height) : (unsigned int)ceil((double)self->face->size->metrics.height / 64.0);
+     if (for_metrics) {
+         unsigned int underscore_height = get_height_for_char(self, '_');
+         if (underscore_height > ans) {
+@@ -571,7 +571,7 @@ cell_metrics(PyObject *s) {
+     FontCellMetrics ans = {0};
+     ans.cell_width = calc_cell_width(self);
+     ans.cell_height = calc_cell_height(self, true);
+-    ans.baseline = font_units_to_pixels_y(self, self->metrics.ascender);
++    ans.baseline = self->is_scalable ? (unsigned int)font_units_to_pixels_y(self, self->metrics.ascender) : (unsigned int)ceil((double)self->face->size->metrics.ascender / 64.0);
+     ans.underline_position =
+         MIN(ans.cell_height - 1, (unsigned int)font_units_to_pixels_y(self, MAX(0, self->metrics.ascender - self->metrics.underline_position)));
+     ans.underline_thickness = MAX(1, font_units_to_pixels_y(self, self->metrics.underline_thickness));
+@@ -1487,9 +1487,9 @@ render_simple_text_impl(PyObject *s, const char *text, unsigned int baseline) {
+     Face *self = (Face *)s;
+     StringCanvas ans = {0};
+     size_t num_chars = strnlen(text, 32);
+-    int max_char_width = font_units_to_pixels_x(self, self->face->max_advance_width);
++    int max_char_width = self->is_scalable ? font_units_to_pixels_x(self, self->face->max_advance_width) : (int)ceil((double)self->face->size->metrics.max_advance / 64.0);
+     size_t canvas_width = max_char_width * (num_chars * 2);
+-    size_t canvas_height = font_units_to_pixels_y(self, self->face->height) + 8;
++    size_t canvas_height = (self->is_scalable ? (size_t)font_units_to_pixels_y(self, self->face->height) : (size_t)ceil((double)self->face->size->metrics.height / 64.0)) + 8;
+     pixel *canvas = calloc(canvas_width * canvas_height, sizeof(pixel));
+     if (!canvas) return ans;
+     size_t pen_x = 0;

@@ -1,0 +1,46 @@
+From: htayj <htayj@users.noreply.github.com>
+Subject: [PATCH] fonts: treat fixed-cell bitmap faces as monospace
+
+Fontconfig classifies Unscii PCF as FC_CHARCELL rather than FC_MONO.  Include
+that spacing class in Kitty's primary monospace font map so a configured
+Unscii family is not silently replaced by DejaVu Sans Mono.
+
+diff --git a/kitty/fonts/fontconfig.py b/kitty/fonts/fontconfig.py
+index 4c50aafa..25d359f7 100644
+--- a/kitty/fonts/fontconfig.py
++++ b/kitty/fonts/fontconfig.py
+@@ -7,6 +7,7 @@
+ from typing import Literal, NamedTuple, Optional, cast
+ 
+ from kitty.fast_data_types import (
++    FC_CHARCELL,
+     FC_DUAL,
+     FC_MONO,
+     FC_SLANT_ITALIC,
+@@ -55,7 +56,7 @@ def clear_caches() -> None:
+ @lru_cache(maxsize=2)
+ def all_fonts_map(monospaced: bool = True) -> FontMap:
+     if monospaced:
+-        ans = fc_list(spacing=FC_DUAL) + fc_list(spacing=FC_MONO)
++        ans = fc_list(spacing=FC_CHARCELL) + fc_list(spacing=FC_DUAL) + fc_list(spacing=FC_MONO)
+     else:
+         # allow non-monospaced and bitmapped fonts as these are used for
+         # symbol_map
+@@ -64,7 +65,7 @@ def all_fonts_map(monospaced: bool = True) -> FontMap:
+ 
+ 
+ def is_monospace(descriptor: FontConfigPattern) -> bool:
+-    return descriptor['spacing'] in ('MONO', 'DUAL')
++    return descriptor['spacing'] in ('CHARCELL', 'MONO', 'DUAL')
+ 
+ 
+ def is_variable(descriptor: FontConfigPattern) -> bool:
+@@ -149,7 +150,7 @@ def score(self, candidate: Descriptor) -> Score:
+         italic_score = abs((FC_SLANT_ITALIC if self.italic else FC_SLANT_ROMAN) - candidate['slant'])
+         monospace_match = 0
+         if self.monospaced:
+-            monospace_match = 0 if candidate.get('spacing') == 'MONO' else 1
++            monospace_match = 0 if candidate.get('spacing') in ('CHARCELL', 'MONO', 'DUAL') else 1
+         width_score = abs(candidate['width'] - FC_WIDTH_NORMAL)
+         return Score(variable_score, bold_score / 1000 + italic_score / 110, monospace_match, width_score)
+ 
