@@ -1,0 +1,36 @@
+Remove overwritten early element presentation definitions.
+
+The final definitions later in frame2.lisp are the effective upstream
+behavior.  Keeping both in one compilation unit emits duplicate-definition
+warnings, rejected by ASDF/SBCL.  Preserve the final presentation scaling.
+
+--- a/src/frame2.lisp
++++ b/src/frame2.lisp
+@@ -230,27 +230,6 @@
+ 	    (setf mode element))))))))
+ 
+ 
+-(define-presentation-type-abbreviation g-elements ()
+-                                       `((member g-concept g-circle g-rectangle g-arrow
+-                                                 g-chain g-spline-chain g-polygon
+-                                                 g-spline-polygon g-text g-point)
+-                                         :name-key identity
+-                                         :printer present-elements
+-                                         :highlighter highlight-element))
+-
+-(defun present-elements (object stream &rest args)
+-  (let ((*concept-labels* nil)
+-	(*handles-symbol-list* nil)
+-	(*bounding-boxes* nil)
+-	(*origins* nil)
+-	(*global-scaling* 0.7))
+-    (draw (second (assoc object
+-			 *sample-graphic-objects*))
+-	  stream)))
+-
+-(defun highlight-element (continuation object stream)
+-  (surrounding-output-with-border (stream)
+-    (funcall continuation object stream)))
+     
+  
+ 
