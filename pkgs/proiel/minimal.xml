@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: MIT.  Independent synthetic example, not a corpus extract. -->
+<proiel schema-version="2.1" export-time="2026-10-02T00:00:00Z">
+  <source id="guix-sample" language="lat">
+    <title>Guix synthetic treebank</title>
+    <citation-part>Sample</citation-part>
+    <license>MIT</license>
+    <div id="10">
+      <title>Two synthetic sentences</title>
+      <sentence id="100" status="reviewed" annotated-by="fixture" reviewed-by="consumer" presentation-after=" ">
+        <token id="101" form="Luna" lemma="luna" part-of-speech="Nb" morphology="-s---fn--i" head-id="102" relation="sub" citation-part="1" presentation-after=" "/>
+        <token id="102" form="lucet" lemma="luceo" part-of-speech="V-" morphology="3spia----i" relation="pred" citation-part="1" presentation-after="."/>
+      </sentence>
+      <sentence id="200" status="annotated" presentation-after="">
+        <token id="201" form="A&amp;B" lemma="nomen" part-of-speech="Nb" morphology="-s---nn--i" head-id="202" relation="sub" citation-part="2" presentation-after=" "/>
+        <token id="202" form="videt" lemma="video" part-of-speech="V-" morphology="3spia----i" relation="pred" citation-part="2" presentation-after=" "/>
+        <token id="203" form="astrum" lemma="astrum" part-of-speech="Nb" morphology="-s---na--i" head-id="202" relation="obj" citation-part="2" presentation-after="!"/>
+      </sentence>
+    </div>
+  </source>
+</proiel>
