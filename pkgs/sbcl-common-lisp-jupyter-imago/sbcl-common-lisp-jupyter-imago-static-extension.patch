@@ -1,0 +1,102 @@
+Install the prebuilt JupyterLab extension as package data, not an ASDF
+compile output in the user's XDG data home.  The custom compile operation
+copied the extension on library load, giving those outputs current timestamps
+and making the immutable Common Lisp FASLs appear out of date.
+
+Model every shipped resource with ordinary ASDF module/static-file components.
+Guix installs the same prebuilt tree into share/jupyter/labextensions, where
+Jupyter discovers it through XDG_DATA_DIRS.  Remove the unused custom operation
+system rather than retaining a second runtime installation path.
+
+--- a/common-lisp-jupyter.asd
++++ b/common-lisp-jupyter.asd
+@@ -5,7 +5,6 @@
+   :version "1.0"
+   :homepage "https://yitzchak.github.io/common-lisp-jupyter/"
+   :bug-tracker "https://github.com/yitzchak/common-lisp-jupyter/issues"
+-  :defsystem-depends-on ("jupyter-lab-extension")
+   :depends-on
+     ("alexandria"
+      "babel"
+@@ -27,8 +26,17 @@
+      "trivial-mimes"
+      "trivial-features")
+   :components
+-    ((:jupyter-lab-extension "debugger-restarts-clj"
+-      :pathname "debugger-restarts/prebuilt/")
++    ((:module "debugger-restarts-clj"
++      :pathname "debugger-restarts/prebuilt/"
++      :components
++        ((:static-file "package.json")
++         (:module "static"
++          :components
++            ((:static-file "149.2a11f31fe3ceeaff1760.js")
++             (:static-file "549.48a98a468a9c4092a413.js")
++             (:static-file "remoteEntry.392b95aa74b3661bc1b4.js")
++             (:static-file "style.js")
++             (:static-file "third-party-licenses.json")))))
+      (:module res
+       :components
+         ((:module ccl
+--- a/jupyter-lab-extension.asd
++++ /dev/null
+@@ -1,6 +0,0 @@
+-(asdf:defsystem #:jupyter-lab-extension
+-  :components ((:module src
+-                :pathname "src/lab-extension/"
+-                :serial t
+-                :components ((:file "packages")
+-                             (:file "asdf")))))
+--- a/src/lab-extension/packages.lisp
++++ /dev/null
+@@ -1,3 +0,0 @@
+-(defpackage #:jupyter/lab-extension
+-  (:use #:common-lisp)
+-  (:export #:jupyter-lab-extension))
+--- a/src/lab-extension/asdf.lisp
++++ /dev/null
+@@ -1,44 +0,0 @@
+-(in-package #:jupyter/lab-extension)
+-
+-(defun extension-pathname (name)
+-  (merge-pathnames (make-pathname :directory (list :relative
+-                                                   #+darwin "Jupyter"
+-                                                   #-darwin "jupyter"
+-                                                   "labextensions"
+-                                                   name))
+-                   #+darwin (merge-pathnames (make-pathname :directory '(:relative "Library"))
+-                                             (uiop:getenv-pathname "HOME" :ensure-directory t))
+-                   #+windows (uiop:get-folder-path :appdata)
+-                   #-(or darwin windows) (uiop:xdg-data-home)))
+-
+-(defclass jupyter-lab-extension (asdf:file-component)
+-  ()
+-  (:default-initargs :type "lab-extension"))
+-
+-(defmethod asdf:input-files ((op asdf:compile-op) (c jupyter-lab-extension))
+-  (remove-if (lambda (x)
+-               (not (uiop:file-pathname-p x)))
+-             (directory (merge-pathnames (make-pathname :directory '(:relative :wild-inferiors)
+-                                                        :name :wild :type :wild :version :wild)
+-                                         (asdf:component-pathname c)))))
+-
+-(defmethod asdf:output-files ((op asdf:compile-op) (c jupyter-lab-extension))
+-  (values (loop with source = (asdf:component-pathname c)
+-                with destination = (extension-pathname (asdf:component-name c))
+-
+-                for x in (directory (merge-pathnames (make-pathname :directory '(:relative :wild-inferiors)
+-                                                                    :name :wild :type :wild :version :wild)
+-                                                     source))
+-                when (uiop:file-pathname-p x)
+-                  collect (merge-pathnames (uiop:subpathp x source) destination))
+-          t))
+-
+-(defmethod asdf:perform ((op asdf:compile-op) (c jupyter-lab-extension))
+-  (loop for input in (asdf:input-files op c)
+-        for output in (asdf:output-files op c)
+-        do (ensure-directories-exist output)
+-           (uiop:copy-file input output)))
+-
+-(defmethod asdf:perform ((op asdf:load-op) (c jupyter-lab-extension)))
+-
+-(setf (find-class 'asdf::jupyter-lab-extension) (find-class 'jupyter-lab-extension))

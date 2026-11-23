@@ -1,0 +1,21 @@
+### Fix imago/jupyter display against current imago PNG API
+
+jupyter/jupyter.lisp still calls the long-gone IMAGO-PNGIO package
+(old write-png-to-stream interface).  Current imago (src/file-png.lisp,
+src/package.lisp:74) exports WRITE-PNG-TO-STREAM in the IMAGO package
+(zpng backend, same (image stream) lambda list).  Port the display
+method to it so show-image emits a real encoded PNG — no alias or shim
+introduced; binary images still funnel through grayscale conversion.
+
+--- a/jupyter/jupyter.lisp
++++ b/jupyter/jupyter.lisp
+@@ -12,7 +12,7 @@
+ (defmethod show-image ((image image))
+   (png
+    (usb8-array-to-base64-string
+     (flexi-streams:with-output-to-sequence (stream)
+-      (imago-pngio:write-png-to-stream image stream)))))
++      (imago:write-png-to-stream image stream)))))
+ 
+ (defmethod show-image ((image binary-image))
+   (show-image (convert-to-grayscale image)))

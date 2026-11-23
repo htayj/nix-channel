@@ -5,6 +5,7 @@
   applyPatches,
   sbcl-cl-libheif,
   sbcl-cl-libtiff,
+  sbcl-common-lisp-jupyter-imago,
 }:
 
 sbcl.buildASDFSystem {
@@ -22,8 +23,13 @@ sbcl.buildASDFSystem {
       hash = "sha256-c8DWxnRG9EZIq73G+H9YgtwGLl7D5KDcG9Shr0F7H9w=";
     };
     # Keep backends registered by imago/jpeg-turbo, imago/libheif and
-    # imago/libtiff when the core system is loaded again.
-    patches = [ ./sbcl-imago-preserve-format-registry.patch ];
+    # imago/libtiff when the core system is loaded again, and port the
+    # imago/jupyter display method from the removed imago-pngio package to
+    # imago:write-png-to-stream.
+    patches = [
+      ./sbcl-imago-preserve-format-registry.patch
+      ./sbcl-imago-jupyter-png-api.patch
+    ];
     # The docs/ and tests/ images carry no license grant; only the
     # LLGPL-covered Lisp sources are installed.
     postPatch = ''
@@ -32,18 +38,19 @@ sbcl.buildASDFSystem {
     '';
   };
 
-  # imago/jupyter needs a common-lisp-jupyter variant with a static lab
-  # extension and is not built; imago/tests needs the removed fixtures.
+  # imago/tests needs the removed fixtures.
   systems = [
     "imago"
     "imago/bit-io"
     "imago/jpeg-turbo"
     "imago/libheif"
     "imago/libtiff"
+    "imago/jupyter"
   ];
   lispLibs =
     (with sbcl.pkgs; [
       alexandria
+      cl-base64
       array-operations
       cl-jpeg
       flexi-streams
@@ -58,6 +65,7 @@ sbcl.buildASDFSystem {
     ++ [
       sbcl-cl-libheif
       sbcl-cl-libtiff
+      sbcl-common-lisp-jupyter-imago
     ];
 
   meta = {
@@ -67,7 +75,8 @@ sbcl.buildASDFSystem {
       support for PNG, JPEG (classic and libjpeg-turbo), HEIF/HEIC, TIFF, PNM
       and TGA formats, colour space conversions, convolution, morphology,
       resizing and rotation. This package builds the imago, imago/bit-io,
-      imago/jpeg-turbo, imago/libheif and imago/libtiff systems.
+      imago/jpeg-turbo, imago/libheif, imago/libtiff and imago/jupyter
+      systems.
     '';
     homepage = "https://github.com/tokenrove/imago";
     # LLGPL: the LGPL 2.1 with Franz's Lisp preamble; nixpkgs has no entry.
