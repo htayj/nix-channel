@@ -1,0 +1,54 @@
+Repair native source portability without changing game mechanics.
+
+Mutable files belong in one XDG data directory; resources remain immutable.
+The gas handler lacks its SoundFile import and names a nonexistent cough.ogg.
+The existing gas_breath.ogg was introduced with the gas handler in upstream
+0.8 commit 6363a81 and moved to media/Audio in 1.0.  Using that authentic
+resource is a filename-mismatch repair inferred from that history, not an
+upstream-confirmed rename.  Preserve the native mixer, damage and timing.
+
+--- a/main.py
++++ b/main.py
+@@ -18,4 +18 @@
+-if getattr(sys, 'frozen', False):
+-    game_dir = path.dirname(sys.executable)
+-else:
+-    game_dir=path.dirname(__file__)
++from enemy_trench_paths import DATA_DIR as game_dir, STATE_DIR as state_dir
+--- a/setup_game.py
++++ b/setup_game.py
+@@ -33,4 +33 @@
+-if getattr(sys, 'frozen', False):
+-    game_dir = path.dirname(sys.executable)
+-else:
+-    game_dir=path.dirname(__file__)
++from enemy_trench_paths import DATA_DIR as game_dir, STATE_DIR as state_dir
+--- a/input_handlers.py
++++ b/input_handlers.py
+@@ -28,4 +28 @@
+-if getattr(sys, 'frozen', False):
+-    game_dir = path.dirname(sys.executable)
+-else:
+-    game_dir=path.dirname(__file__)
++from enemy_trench_paths import DATA_DIR as game_dir, STATE_DIR as state_dir
+--- a/g.py
++++ b/g.py
+@@ -8,4 +8 @@
+-if getattr(sys, 'frozen', False):
+-    game_dir = path.dirname(sys.executable)
+-else:
+-    game_dir=path.dirname(__file__)
++from enemy_trench_paths import DATA_DIR as game_dir
+--- a/engine.py
++++ b/engine.py
+@@ -3,0 +4 @@
++import soundfile
+@@ -24,4 +25 @@
+-if getattr(sys, 'frozen', False):
+-    game_dir = path.dirname(sys.executable)
+-else:
+-    game_dir=path.dirname(__file__)
++from enemy_trench_paths import DATA_DIR as game_dir, STATE_DIR as state_dir
+@@ -82 +80 @@
+-                                    sound, sample_rate = soundfile.read("media/Audio/cough.ogg")
++                                    sound, sample_rate = soundfile.read("media/Audio/gas_breath.ogg")
