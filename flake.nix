@@ -299,6 +299,7 @@
         donk-messages-image = pkgs.callPackage ./pkgs/donk-messages-image { };
         vt05 = pkgs.callPackage ./pkgs/vt05 { };
         wanderers = pkgs.callPackage ./pkgs/wanderers { };
+        wenyan = pkgs.callPackage ./pkgs/wenyan { };
         wrogue = pkgs.callPackage ./pkgs/wrogue { };
         xnethack = pkgs.callPackage ./pkgs/xnethack { };
         you-can-datamosh-on-linux = pkgs.callPackage ./pkgs/you-can-datamosh-on-linux { };
@@ -332,7 +333,7 @@
         in {
             inherit (self.packages.${system}) acehack affect agduria aiwnios aiwnios-bytecode amstelvar apout aquarium-arena aquesttoofar atarist-font atlas-warriors atrogue autolith avanor axmud azurra-gtk-theme bcrawl bell-labs-rogue7 bell-museum blincolnlights bloatcrawl2 gnollcrawl gooncrawl gnollhack bootrogue brogue-lite cadr-fonts-latin cadr-fonts-symbols calcrogue cavechop city-of-the-condemned clojure-roguelike computer-builder corerl cotd cracks-and-crevices crashrun cryptrover curseforge dec-fonts dhack diabaig dicom2mesh dnethack dorxng-mcp dynahack dragonslayer drl dungeon-monkey-unlimited dungeonminder durthang dwarftown emacs-chatgpt-el emacs-cl emacs-emigo emacs-org-popup-posframe emacs-pbui emacs-treesit-sexp encircled enemy-trench escape-from-lab-42 everything-is-fodder evilhack exalt faangband farmingrl fiqhack flaghack font-exppd-unicode for-roguelike freelarn frostbite
             gearhead gearhead2 geminum-orbis gened genera-fonts-latin genera-fonts-symbols go-mud god-of-change godisc goblins-lot grippy-socks gruesome grunthack hack hackem hellcrawl hunger-games hydra-slayer image-tape infection interlisp-medley itstar ivory-key kbredir kbtin kildclient kimchi kitty-bitmap klh10 kmuddy ks10-udis lbforth letter-hunt liveonce liquid lispy-rogue ludviglundgren-qbittorrent-cli lyntin manna-cadet martins-dungeon-bash meta-typing mmapper modus mushkin mushtato narwharl nitrohack nlarn node-unrs-resolver notion-river nrl-text-to-phoneme obumbrata ocaml-irc-client ocaml-irc-client-unix ocaml-irc-client-lwt ocaml-irc-client-lwt-ssl oh-my-opencode-slim-companion pdp10-gcc pdp10-its-disassembler pdp10-suppty pdp10-xpl-pdp-10 pdp11 pdp6 persephil plomrogue potato proiel pycat python-tcod qbcl raelives rapidbrogue react-blessed revengate rot-js rouge ruby-memoist ruby-sax-machine rust-computus rust-effects savescummer scala-ts secretpathway sbcl-cl-libheif sbcl-cl-libtiff sbcl-common-lisp-jupyter-imago sbcl-imago sbcl-mcclim sbcl-rplaca sewer-massacre shadow-over-darkmoor shamogu six-two-one slashem soundthread splicehack-rewrite sporkhack srogue stoat-soup
-            talmudifier tapeutils tassh terminaldrome tetraworld the-smiths-hand trebuchet trial-by-combat tui uc-explorer donk-messages-image vt05 wanderers wrogue xnethack you-can-datamosh-on-linux buzz-desktop openclaw-desktop rbw-vaultwarden m3shapes eca mudpuppy;
+            talmudifier tapeutils tassh terminaldrome tetraworld the-smiths-hand trebuchet trial-by-combat tui uc-explorer donk-messages-image vt05 wanderers wenyan wrogue xnethack you-can-datamosh-on-linux buzz-desktop openclaw-desktop rbw-vaultwarden m3shapes eca mudpuppy;
           overlay = assert pkgs.autolith.drvPath == self.packages.${system}.autolith.drvPath;
             pkgs.runCommand "channel-overlay-check" {} "touch $out";
           secrets = pkgs.runCommand "channel-secret-scan" {
