@@ -1,0 +1,32 @@
+Backport python-tcod's modern SDL header parser compatibility exclusions.
+
+Source: https://github.com/libtcod/python-tcod/blob/19.6.3/build_sdl.py
+New SDL2 headers put whitespace between ')' and ';'.  The old parser therefore
+failed to exclude va_list declarations, whose platform-specific ABI CFFI
+cannot describe.  This retains the upstream policy of excluding only these
+uncallable va_list entry points, not ordinary SDL functions or game behavior.
+
+Also backport the upstream IGNORE_DEFINES additions: compiler annotations and
+platform configuration flags are not exported SDL integer constants, while
+SDL_FLT_EPSILON is floating-point.  This fixes CFFI classification, preserving
+all ordinary callable SDL/audio APIs without suppressing compiler diagnostics.
+
+--- a/build_sdl.py
++++ b/build_sdl.py
+@@ -31 +31 @@
+-RE_VAFUNC = re.compile(r"^.*?\([^()]*va_list[^()]*\);$", re.MULTILINE)
++RE_VAFUNC = re.compile(r"^.*?\([^()]*va_list[^()]*\)\s*;\s*$", re.MULTILINE)
+@@ -57,0 +58,6 @@
++        "SDL_HAS_FALLTHROUGH",
++        "SDL_NO_THREAD_SAFETY_ANALYSIS",
++        "SDL_SCOPED_CAPABILITY",
++        "SDL_NODISCARD",
++        "SDL_NOLONGLONG",
++        "SDL_WINAPI_FAMILY_PHONE",
+@@ -65,0 +72,6 @@
++        # Ignore floating point symbols.
++        "SDL_FLT_EPSILON",
++        # Conditional config flags which might be missing.
++        "SDL_VIDEO_RENDER_D3D12",
++        "SDL_SENSOR_WINDOWS",
++        "SDL_SENSOR_DUMMY",
