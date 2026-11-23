@@ -1,0 +1,68 @@
+Preserve registered image backends when the core system is loaded again.
+
+The optional JPEG, HEIF and TIFF systems register handlers in the core's
+reader/writer tables.  Reloading src/file.lisp must not replace those tables,
+and reloading the built-in format files must not overwrite a backend already
+selected by the caller.  Retain the public register-image-* replacement
+semantics; only built-in defaults use the private fill-if-absent helper.
+
+--- a/src/file.lisp
++++ b/src/file.lisp
+@@ -13,8 +13,10 @@
+ (in-package :imago)
+ 
+ 
+-(defparameter *image-file-readers* (make-hash-table :test #'equal))
+-(defparameter *image-file-writers* (make-hash-table :test #'equal))
++;; Optional systems and callers register handlers here.  Preserve their
++;; selections when the core system is loaded again.
++(defvar *image-file-readers* (make-hash-table :test #'equal))
++(defvar *image-file-writers* (make-hash-table :test #'equal))
+ 
+ (defun read-image (filename &key (errorp t))
+   "Reads an image from a file. If the file format is not recognized,
+@@ -73,6 +75,16 @@
+     (register-image-reader extensions reader))
+   (when writer
+     (register-image-writer extensions writer)))
+ 
++(defun register-default-image-io-functions (extensions &key reader writer)
++  "Install core handlers only for extensions without a selected backend."
++  (dolist (extension extensions)
++    (when (and reader
++               (not (nth-value 1 (gethash extension *image-file-readers*))))
++      (setf (gethash extension *image-file-readers*) reader))
++    (when (and writer
++               (not (nth-value 1 (gethash extension *image-file-writers*))))
++      (setf (gethash extension *image-file-writers*) writer))))
++
+ (defmacro def-reader-from-file (reader-name stream-reader &optional documentation)
+   (alex:with-gensyms (stream)
+--- a/src/file-jpg.lisp
++++ b/src/file-jpg.lisp
+@@ -103,3 +103,3 @@
+-(register-image-io-functions '("jpg" "jpeg")
++(register-default-image-io-functions '("jpg" "jpeg")
+                              :reader #'read-jpg
+                              :writer #'write-jpg)
+--- a/src/file-png.lisp
++++ b/src/file-png.lisp
+@@ -107,3 +107,3 @@
+-(register-image-io-functions '("png")
++(register-default-image-io-functions '("png")
+  :reader #'read-png
+  :writer #'write-png)
+--- a/src/file-pnm.lisp
++++ b/src/file-pnm.lisp
+@@ -210,3 +210,3 @@
+-(register-image-io-functions '("pnm" "ppm" "pgm" "pbm")
++(register-default-image-io-functions '("pnm" "ppm" "pgm" "pbm")
+                              :reader #'read-pnm
+                              :writer #'write-pnm)
+--- a/src/file-tga.lisp
++++ b/src/file-tga.lisp
+@@ -150,3 +150,3 @@
+-(register-image-io-functions '("tga")
++(register-default-image-io-functions '("tga")
+                              :reader #'read-tga
+                              :writer #'write-tga)
